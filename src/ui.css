@@ -7,7 +7,7 @@
 .wwh3-lede{font-size:17px;line-height:1.55;color:rgba(255,255,255,.82);margin:0}
 .wwh3-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(300px,1fr);gap:24px;align-items:start}
 .wwh3-left{display:flex;flex-direction:column;gap:16px;min-width:0}
-.wwh3-stage{position:relative;aspect-ratio:16/10;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#2c3d45 0%,#5e4b3a 50%,#7a4a26 100%)}
+.wwh3-stage{position:relative;aspect-ratio:16/10;border-radius:12px;overflow:hidden;background:#f4efe4}
 .wwh3-stage canvas{display:block;width:100%;height:100%;touch-action:pan-y;cursor:grab}
 .wwh3-stage canvas:active{cursor:grabbing}
 .wwh3-pins{position:absolute;inset:0;pointer-events:none}
@@ -21,7 +21,7 @@
 .wwh3-hint b{font-weight:inherit}.wwh3-hint{white-space:nowrap;font-size:12.5px;color:rgba(255,255,255,.75);background:rgba(10,25,17,.6);padding:6px 10px;border-radius:99px}
 .wwh3-reset{pointer-events:auto;font:inherit;font-size:12.5px;font-weight:600;color:#fff;background:rgba(10,25,17,.7);border:1px solid rgba(255,255,255,.25);border-radius:99px;padding:6px 12px;cursor:pointer}
 .wwh3-reset:hover{border-color:var(--o)}
-.wwh3-msg{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:rgba(255,255,255,.7);text-align:center;padding:20px}
+.wwh3-msg{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#6b665c;text-align:center;padding:20px}
 .wwh3-panel{background:#fff;color:var(--g);border-radius:12px;padding:26px;line-height:1.5}
 .wwh3-num{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--o);margin:0 0 8px}
 .wwh3-ptitle{font-size:24px;line-height:1.2;margin:0 0 12px;color:var(--g);font-weight:700}

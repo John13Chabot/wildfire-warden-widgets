@@ -52,7 +52,7 @@ const place = (g, x, y, z, sx = 1, sy = 1, sz = 1, ry = 0) => { g = g.clone(); g
 
 export function buildWorld(scene, { small }) {
   // ---------- terrain ----------
-  const S = 220, N = small ? 140 : 220;
+  const S = 220, N = small ? 120 : 160;
   const tg = new THREE.PlaneGeometry(S, S, N, N); tg.rotateX(-Math.PI / 2);
   const p = tg.attributes.position, col = new Float32Array(p.count * 3);
   const lawn = new THREE.Color('#5d7d3c'), lawn2 = new THREE.Color('#4c6c33'), dry = new THREE.Color('#b59a5e'), dry2 = new THREE.Color('#8f7a46'), chap = new THREE.Color('#5e6638'), t = new THREE.Color();
@@ -102,7 +102,9 @@ export function buildWorld(scene, { small }) {
   const canopyM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, bumpMap: T.noiseGray(128, 32, 2), bumpScale: 1.2 });
   const oakBarkM = new THREE.MeshStandardMaterial({ map: T.oakBark(), roughness: 0.95 }); oakBarkM.map.repeat.set(2, 2);
   const eucBarkM = new THREE.MeshStandardMaterial({ map: T.eucBark(), roughness: 0.8 }); eucBarkM.map.repeat.set(1, 3);
-  const can = [], oakW = [], eucW = [];
+  let can = [], oakW = [], eucW = [];
+  const near = { can: [], oakW: [], eucW: [] }, far = { can: [], oakW: [], eucW: [] };
+  const bucket = (x, z) => { const b = Math.hypot(x - 3, z) < 30 ? near : far; can = b.can; oakW = b.oakW; eucW = b.eucW; };
 
   function limb(arr, pts, r0, r1) {
     const n = pts.length - 1;
@@ -113,6 +115,7 @@ export function buildWorld(scene, { small }) {
     }
   }
   function oak(x, z, s, opt = {}) {
+    bucket(x, z);
     const o = V(x, hgt(x, z) - 0.15, z), leaf = opt.leaf || '#34451f', lift = opt.lift || 0;
     const top = V(T.rr(-0.5, 0.5) * s, (2.0 + lift * 0.6) * s, T.rr(-0.5, 0.5) * s).add(o);
     limb(oakW, [o.clone(), V(o.x + T.rr(-0.2, 0.2) * s, o.y + 1.1 * s, o.z + T.rr(-0.2, 0.2) * s), top], 0.5 * s, 0.36 * s);
@@ -128,10 +131,11 @@ export function buildWorld(scene, { small }) {
       const r = T.rr(0.55, 0.95) * s * (opt.blob || 1);
       can.push(colorize(place(blob(1, Math.floor(T.rnd() * 7), 1, 0.3), c.x + Math.cos(u) * d, c.y + v * R * 0.45, c.z + Math.sin(u) * d, r, r * 0.75, r, T.rnd() * 6), leaf, 0.26, 0.08));
     } };
-    for (const e of ends) lobes(V(e.x, e.y + 0.5 * s, e.z), 1.7 * s * (opt.blob || 1), 13);
-    lobes(V(top.x, top.y + 2.0 * s, top.z), 2.4 * s * (opt.blob || 1), 16);
+    for (const e of ends) lobes(V(e.x, e.y + 0.5 * s, e.z), 1.7 * s * (opt.blob || 1), 10);
+    lobes(V(top.x, top.y + 2.0 * s, top.z), 2.4 * s * (opt.blob || 1), 12);
   }
   function euc(x, z, s) {
+    bucket(x, z);
     const o = V(x, hgt(x, z) - 0.2, z), H = T.rr(15, 19) * s, lean = V(T.rr(-1, 1), 0, T.rr(-1, 1)).multiplyScalar(0.06 * H);
     const pts = []; for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(V(o.x + lean.x * t * t + Math.sin(t * 5 + x) * 0.3 * s, o.y + H * 0.6 * t, o.z + lean.z * t * t + Math.cos(t * 4 + z) * 0.3 * s)); }
     limb(eucW, pts, 0.42 * s, 0.24 * s);
@@ -143,11 +147,11 @@ export function buildWorld(scene, { small }) {
       limb(eucW, [fork.clone(), m, e], 0.22 * s, 0.07 * s);
       for (const anchor of [m, e]) for (let j = 0; j < (anchor === e ? 26 : 12); j++) {
         const r = T.rr(0.28, 0.5) * s;
-        can.push(colorize(place(blob(1, j, 1, 0.3), anchor.x + T.rr(-2, 2) * s, anchor.y - T.rr(-0.6, 2.8) * s, anchor.z + T.rr(-2, 2) * s, r * 0.85, r * 1.7, r * 0.85, T.rnd() * 6), ['#7d8c6f', '#6c7c60', '#8b9a7c'][j % 3], 0.18, 0.08));
+        can.push(colorize(place(blob(1, j, 0, 0.3), anchor.x + T.rr(-2, 2) * s, anchor.y - T.rr(-0.6, 2.8) * s, anchor.z + T.rr(-2, 2) * s, r * 0.85, r * 1.7, r * 0.85, T.rnd() * 6), ['#7d8c6f', '#6c7c60', '#8b9a7c'][j % 3], 0.18, 0.08));
       }
     }
   }
-  function cypress(x, z, s) { const y = hgt(x, z); can.push(colorize(place(blob(1, 3, 2, 0.12), x, y + 3.6 * s, z, 0.85 * s, 3.9 * s, 0.85 * s), '#2c4a2a', 0.08)); }
+  function cypress(x, z, s) { bucket(x, z); const y = hgt(x, z); can.push(colorize(place(blob(1, 3, 2, 0.12), x, y + 3.6 * s, z, 0.85 * s, 3.9 * s, 0.85 * s), '#2c4a2a', 0.08)); }
 
   T.reseed(4242);
   oak(15.8, -5.6, 1.15, { lift: 1.4, limbs: 6, spread: 1.15 });
@@ -156,10 +160,13 @@ export function buildWorld(scene, { small }) {
   for (const [x, z, s] of [[-3, -16, 1], [1.5, -20, 1.15], [-7.5, -21, 1.05], [11, -21, 1.1], [16, -16, 0.95], [-20, -16, 1.1], [-22, -7, 1.2], [-13, -15, 1], [27, -15, 1.05], [-36, 2, 1.2], [34, -6, 1.1]]) euc(x, z, s);
   cypress(14.7, 3.8, 1); cypress(14.7, -1.6, 0.9); cypress(-5.6, -6.6, 0.85);
 
-  const canopy = new THREE.Mesh(mergeGeometries(can), canopyM); canopy.castShadow = canopy.receiveShadow = true; scene.add(canopy);
-  for (const [arr, m] of [[oakW, oakBarkM], [eucW, eucBarkM]]) {
-    const geos = arr.map((g) => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; });
-    const mesh = new THREE.Mesh(mergeGeometries(geos), m); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh);
+  for (const [b, cast] of [[near, true], [far, false]]) {
+    if (b.can.length) { const canopy = new THREE.Mesh(mergeGeometries(b.can), canopyM); canopy.castShadow = cast; canopy.receiveShadow = true; scene.add(canopy); }
+    for (const [arr, m] of [[b.oakW, oakBarkM], [b.eucW, eucBarkM]]) {
+      if (!arr.length) continue;
+      const geos = arr.map((g) => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; });
+      const mesh = new THREE.Mesh(mergeGeometries(geos), m); mesh.castShadow = cast; mesh.receiveShadow = true; scene.add(mesh);
+    }
   }
 
   // chaparral shrubs + boulders (instanced)
@@ -186,7 +193,7 @@ export function buildWorld(scene, { small }) {
   const blade = new THREE.BufferGeometry();
   const bv = []; for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI, ca = Math.cos(a) * 0.05, sa = Math.sin(a) * 0.05, lx = Math.cos(a + 1.3) * 0.15, lz = Math.sin(a + 1.3) * 0.15; bv.push(-ca, 0, -sa, ca, 0, sa, lx, 0.55, lz); }
   blade.setAttribute('position', new THREE.Float32BufferAttribute(bv, 3)); blade.computeVertexNormals();
-  const GN = small ? 4000 : 16000;
+  const GN = small ? 1500 : 4000;
   const grass = new THREE.InstancedMesh(blade, new THREE.MeshStandardMaterial({ roughness: 1, side: THREE.DoubleSide }), GN);
   let gi = 0; guard = 0;
   while (gi < GN && guard++ < 60000) {
@@ -194,5 +201,5 @@ export function buildWorld(scene, { small }) {
     const s = T.rr(0.45, 1.05); mm.compose(V(x, hgt(x, z) - 0.02, z), q.setFromEuler(new THREE.Euler(0, T.rnd() * 6, 0)), V(s, s * T.rr(0.8, 1.4), s));
     grass.setMatrixAt(gi, mm); grass.setColorAt(gi++, c.set(T.rnd() < 0.7 ? '#a8905a' : '#8a7a4a').offsetHSL(0, 0, T.rr(-0.05, 0.05)));
   }
-  grass.count = gi; grass.receiveShadow = true; scene.add(grass);
+  grass.count = gi; grass.receiveShadow = true; grass.name = 'grass'; scene.add(grass);
 }
