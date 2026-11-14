@@ -8,7 +8,15 @@ Paste into a Webflow Code Embed:
 
 ```html
 <section id="wwh3"></section>
-<script type="module" src="https://cdn.jsdelivr.net/gh/John13Chabot/wildfire-warden-widgets@v1.0.0/wwh3d.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/John13Chabot/wildfire-warden-widgets@v2.0.0/wwh3d.js"></script>
 ```
 
-Updating: edit `wwh3d.js`, create a new release tag (e.g. `v1.0.1`), then change `@v1.0.0` in the Webflow embed to the new tag and republish. Pinned tags never go stale in jsDelivr's cache.
+Updating: edit `wwh3d.js`, create a new release tag (e.g. `v2.0.1`), then change the version in the Webflow embed to the new tag and republish. Pinned tags never go stale in jsDelivr's cache.
+
+## Source
+
+`src/` holds the readable source; `wwh3d.js` is built with esbuild (three.js r160 bundled, MIT):
+
+```sh
+npm install && npm run build
+```
