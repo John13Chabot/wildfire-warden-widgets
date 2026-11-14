@@ -10,7 +10,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.4.1';
+const VERSION = '3.4.2';
 const root = document.getElementById('wwh3');
 if (root) {
   root.classList.add('wwh3');
@@ -157,7 +157,7 @@ async function start(root, api) {
   function frame() {
     requestAnimationFrame(frame); if (!vis) return;
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
-    if (tour.on && !tour.hold && !document.hidden) { tour.t += dt; if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
+    if (tour.on && !tour.hold && !document.hidden) { tour.t += Math.min(raw, 0.5); if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);
     cur.az += (goal.az - cur.az) * f; cur.el += (goal.el - cur.el) * f; cur.d += (goal.d - cur.d) * f; cur.t.lerp(goal.t, f);
     const d = cur.d * (cam.aspect < 1.4 ? 1.15 : 1);
