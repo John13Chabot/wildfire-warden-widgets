@@ -10,7 +10,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.2.0';
+const VERSION = '3.3.0';
 const root = document.getElementById('wwh3');
 if (root) {
   root.classList.add('wwh3');
