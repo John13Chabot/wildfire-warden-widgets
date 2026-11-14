@@ -61,7 +61,7 @@ function tpl(d,i){return '<p class="wwh3-num">'+(i+1)+' of '+D.length+'</p><h3 c
 setTimeout(function(){for(var k in IMG){var im=new Image();im.decoding='async';im.src=IB+IMG[k].u}},2500);
 var chips=[],api={D:D,pinned:null,cur:-2,ls:[]};
 D.forEach(function(d,i){var c=document.createElement('button');c.type='button';c.className='wwh3-chip';c.setAttribute('role','listitem');c.innerHTML='<span>'+(i+1)+'</span>'+d.t;c.addEventListener('click',function(){api.pin(i)});chipsEl.appendChild(c);chips.push(c)});
-api.set=function(i,fly){if(i!==api.cur){api.cur=i;for(var k=0;k<D.length;k++){chips[k].classList.toggle('is-active',k===i);chips[k].setAttribute('aria-pressed',k===i)}panel.innerHTML=i==null?DEF:tpl(D[i],i)}api.ls.forEach(function(f){f(i,!!fly)})};
+api.set=function(i,fly){if(i!==api.cur){api.cur=i;for(var k=0;k<D.length;k++){chips[k].classList.toggle('is-active',k===i);chips[k].setAttribute('aria-pressed',k===i)}panel.innerHTML=i==null?DEF:tpl(D[i],i);panel.scrollTop=0}api.ls.forEach(function(f){f(i,!!fly)})};
 api.pin=function(i){api.pinned=i;api.set(i,true)};
 root._wwh=api;api.set(null);
 

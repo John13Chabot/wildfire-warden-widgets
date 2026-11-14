@@ -10,7 +10,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 const root = document.getElementById('wwh3');
 if (root) {
   root.classList.add('wwh3');
@@ -101,9 +101,20 @@ async function start(root, api) {
     if (fly) { user = i != null; go(i == null ? DEFV : H[i].v); }
   });
   root.querySelector('.wwh3-reset').addEventListener('click', () => { api.pin(null); user = false; });
+  // ---------- auto-tour: steps 1 -> 7 until the visitor takes over ----------
+  const STEP = 7, tour = { on: true, i: -1, t: 0, hold: false }, tourBtn = root.querySelector('.wwh3-tour'), progEl = root.querySelector('.wwh3-prog i');
+  const pinRaw = api.pin;
+  const tourUI = () => { tourBtn.textContent = tour.on ? 'Pause tour' : '\u25B6 Play tour'; tourBtn.setAttribute('aria-pressed', tour.on); root.classList.toggle('is-touring', tour.on); if (!tour.on) progEl.style.width = '0'; };
+  const stopTour = () => { if (tour.on) { tour.on = false; tourUI(); } };
+  const tourNext = () => { tour.i = (tour.i + 1) % H.length; tour.t = 0; pinRaw(tour.i); };
+  api.pin = (i) => { stopTour(); pinRaw(i); };
+  tourBtn.addEventListener('click', () => { if (tour.on) stopTour(); else { tour.on = true; tour.i = api.pinned == null ? -1 : api.pinned; tourUI(); tourNext(); } });
+  const grid = root.querySelector('.wwh3-grid');
+  grid.addEventListener('mouseenter', () => (tour.hold = true)); grid.addEventListener('mouseleave', () => (tour.hold = false));
+  tourUI();
   const cv = r.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); ray.firstHitOnly = true; let drag = null, hoverLock = false;
   const pick = (e) => { ray.far = Infinity; const b = cv.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam); const h = ray.intersectObjects(solids, false)[0]; return h && h.object.userData.k ? H.findIndex((x) => x.k === h.object.userData.k) : -1; };
-  cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, m: 0 }; goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; });
+  cv.addEventListener('pointerdown', (e) => { stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0 }; goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; });
   cv.addEventListener('pointermove', (e) => {
     if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; goal.az = clampAz(goal.az - dx * 0.006); goal.el = clampEl(goal.el + dy * 0.004); }
     else if (e.pointerType === 'mouse') { if (hoverLock) return; hoverLock = true; requestAnimationFrame(() => (hoverLock = false)); const i = pick(e); cv.style.cursor = i >= 0 ? 'pointer' : ''; if (i >= 0 && i !== api.cur) api.set(i); else if (i < 0 && api.cur !== api.pinned) api.set(api.pinned); }
@@ -147,7 +158,7 @@ async function start(root, api) {
   function frame() {
     requestAnimationFrame(frame); if (!vis) return;
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
-    if (!user && api.pinned == null && !RM) goal.az = DEFV.az + Math.sin(t * 0.16) * 0.32;
+    if (tour.on && !tour.hold && !document.hidden) { tour.t += dt; if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);
     cur.az += (goal.az - cur.az) * f; cur.el += (goal.el - cur.el) * f; cur.d += (goal.d - cur.d) * f; cur.t.lerp(goal.t, f);
     const d = cur.d * (cam.aspect < 1.4 ? 1.15 : 1);
