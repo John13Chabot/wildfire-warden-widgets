@@ -83,7 +83,8 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
   return {
     setSize(w, h, pr) {
       const W = Math.max(1, Math.floor(w * pr)), H = Math.max(1, Math.floor(h * pr));
-      rtColor.setSize(W, H); rtNormal.setSize(W, H);
+      if (rtColor.width === W && rtColor.height === H) { mat.uniforms.dpr.value = pr; return; }
+      for (const rt of [rtColor, rtNormal]) { rt.setSize(W, H); if (rt.depthTexture) { rt.depthTexture.image.width = W; rt.depthTexture.image.height = H; } rt.dispose(); }
       mat.uniforms.res.value.set(W, H); mat.uniforms.dpr.value = pr;
     },
     render(scene, cam, hideInNormal = []) {

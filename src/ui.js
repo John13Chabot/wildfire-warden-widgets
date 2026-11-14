@@ -1,29 +1,19 @@
+import { IB, IMG } from './imgs.js';
 export function initUI(root){
 
 
 var TAG={'Embers':'','Flame contact':'flame','Radiant heat':'heat'};
-var IB='https://cdn.prod.website-files.com/69cec73349fef6b9621b7834/';
-var IMG={
-mesh:{u:'6af8d4814191fdadf3e1503b_ww-gable-vent-mesh.jpg',a:'Gable vent from inside the attic with ember-resistant mesh installed behind the louvers'},
-meshFd:{u:'6af8d4f24ca5b69116353c8e_ww-foundation-vent-mesh.jpg',a:'Foundation vent with new ember-resistant mesh on a stucco wall'},
-bgGable:{u:'6af8d4aabff5d7914716c503_ww-brandguard-gable-vent.jpg',a:'Brandguard ember- and flame-resistant gable vent on a stucco wall'},
-bgFound:{u:'6af8d514666c32990fd34e52_ww-brandguard-foundation-vent.jpg',a:'Brandguard ember- and flame-resistant foundation vent near ground level',pos:'50% 60%'},
-eave:{u:'6ab1916edf6590de2377eb71_IMG_7248.jpg',a:'Boxed eave and soffit enclosure on a Ventura County home'},
-gutter:{u:'6af8d4cb994d262a711219e3_ww-gutter-guard.jpg',a:'Stainless steel gutter guard installed along a shingle roof edge'},
-fortify:{u:'6ab1955e65da71e47bd4365e_IMG_6716.PNG',a:'Phos-Chek FORTIFY fire retardant applied to exposed eave wood',pos:'50% 38%'},
-ff88:{u:'6ab195f1b985901b08bb0c38_IMG_7237.jpg',a:'FireFree 88 intumescent coating applied to exterior wood'}
-};
 var S={
 mesh:{n:'Wildfire Defense Mesh retrofit',i:'mesh',d:'WDM 98 (1/16") or WDM 75 (1/8") mesh fitted behind your existing vent covers. The cost-effective fix that keeps the airflow your home needs.',h:'/ember-resistant-vents'},
 meshF:{n:'Wildfire Defense Mesh retrofit',i:'meshFd',d:'Foundation and crawl space vents get the same WDM 98 or WDM 75 mesh, cut and sealed to each opening so required ventilation is maintained.',h:'/ember-resistant-vents'},
 brand:{n:'Brandguard vent replacement',i:'bgGable',d:'Listed ember- and flame-resistant vents for the most exposed openings, damaged or non-compliant vents, and very high fire hazard zones.',h:'/ember-resistant-vents'},
 brandF:{n:'Brandguard foundation vents',i:'bgFound',d:'Listed ember- and flame-resistant vents for the most exposed openings, damaged or non-compliant vents, and very high fire hazard zones.',h:'/ember-resistant-vents'},
 eave:{n:'Boxed eave enclosure',i:'eave',d:'Open rafter bays closed in with non-combustible James Hardie fiber-cement soffit, removing the pockets where heat and embers collect.',h:'/eave-enclosures'},
-ff88:{n:'FireFree 88 + FfE topcoat',i:'ff88',d:'An intumescent coating that swells into an insulating char under high heat, shielding the wood beneath. Finishes like standard exterior paint.',h:'/services'},
+ff88:{n:'FireFree 88 + FfE topcoat',i:'ff88',d:'An intumescent coating that swells into an insulating char under high heat, shielding the wood beneath. Finishes like standard exterior paint.',h:'/services#firefree-88'},
 fortify:{n:'Phos-Chek FORTIFY',i:'fortify',d:'Long-term fire retardant from the same family used in wildland firefighting, applied to exposed wood such as eaves, framing, and fascia in a single visit.',h:'/fire-retardant-spray'},
 fortifyV:{n:'Phos-Chek FORTIFY for landscaping',i:'fortify',d:'Long-term retardant applied to the plants you keep near the house so they are harder to ignite.',h:'/fire-retardant-spray'},
 gutter:{n:'FireStorm stainless gutter guards',i:'gutter',d:'Stainless steel guards that keep leaves, needles, and bark out while water flows through. No fuel bed at the roof line.',h:'/ember-resistant-gutter-guards'},
-deck:{n:'DeckGuard',d:'Fire-resistant coating for wood decks, fences, and attached wood structures, built to handle foot traffic, weather, and UV.',h:'/services'},
+deck:{n:'DeckGuard',d:'Fire-resistant coating for wood decks, fences, and attached wood structures, built to handle foot traffic, weather, and UV.',h:'/services#deckguard'},
 assess:{n:'Free Zone 0 assessment',d:'We map your first five feet and give you a clear list of what to clear, move, or replace. 30 to 45 minutes, at no cost.',h:'/free-assessment'}
 };
 var D=[
