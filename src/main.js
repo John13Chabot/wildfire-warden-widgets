@@ -10,7 +10,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.4.0';
+const VERSION = '3.4.1';
 const root = document.getElementById('wwh3');
 if (root) {
   root.classList.add('wwh3');
@@ -109,8 +109,7 @@ async function start(root, api) {
   const tourNext = () => { tour.i = (tour.i + 1) % H.length; tour.t = 0; pinRaw(tour.i); };
   api.pin = (i) => { stopTour(); pinRaw(i); };
   tourBtn.addEventListener('click', () => { if (tour.on) stopTour(); else { tour.on = true; tour.i = api.pinned == null ? -1 : api.pinned; tourUI(); tourNext(); } });
-  const grid = root.querySelector('.wwh3-grid');
-  grid.addEventListener('mouseenter', () => (tour.hold = true)); grid.addEventListener('mouseleave', () => (tour.hold = false));
+  const pnl = root.querySelector('.wwh3-panel'); ['wheel', 'pointerdown', 'touchstart'].forEach((ev) => pnl.addEventListener(ev, stopTour, { passive: true }));
   tourUI();
   const cv = r.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); ray.firstHitOnly = true; let drag = null, hoverLock = false;
   const pick = (e) => { ray.far = Infinity; const b = cv.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam); const h = ray.intersectObjects(solids, false)[0]; return h && h.object.userData.k ? H.findIndex((x) => x.k === h.object.userData.k) : -1; };
