@@ -113,9 +113,9 @@ export function buildHouse(house, reg, solids, opts) {
   for (const s of [-1, 1]) box(3.25, 0.28, 0.14, M.woodDk, 1.5 + s * 1.524, 6.43, 6.62, 'wood', 0, 0, -s * a);
   for (let z = 3.3; z <= 6.4; z += 0.6) for (const s of [-1, 1]) box(0.62, 0.18, 0.13, M.woodDk, 1.5 + s * 2.75, 5.86, z, 'eaves', 0, 0, -s * a);
   // louvered gable vent
-  box(1.05, 0.66, 0.12, M.cast, 1.5, 6.47, 6.0, 'attic');
-  box(0.82, 0.44, 0.04, M.dark, 1.5, 6.47, 6.07, 'attic');
-  for (let i = 0; i < 5; i++) box(0.84, 0.035, 0.1, M.vent, 1.5, 6.3 + i * 0.085, 6.1, 'attic', 0.6);
+  box(1.3, 0.8, 0.14, M.cast, 1.5, 6.46, 6.0, 'attic');
+  box(1.06, 0.58, 0.04, M.dark, 1.5, 6.46, 6.08, 'attic');
+  for (let i = 0; i < 6; i++) box(1.06, 0.04, 0.11, M.vent, 1.5, 6.22 + i * 0.095, 6.12, 'attic', 0.6);
   // entry
   const ent = { x: 1.5, y: 0.3, z: 6 };
   L(ent, ring(1.45, 2.75, 0.24, 0.13), M.cast);
@@ -148,8 +148,8 @@ export function buildHouse(house, reg, solids, opts) {
   lantern(-4, 2.6, -1.0, -PI / 2);
 
   // ---------- foundation vents ----------
-  const fv = (f) => { L(f, new Box(0.7, 0.3, 0.05), M.cast, 'found'); L(f, new Box(0.56, 0.18, 0.03), M.vent, 'found', 0, 0, 0.03); for (let i = -3; i <= 3; i++) L(f, new Box(0.02, 0.18, 0.02), M.cast, 'found', i * 0.075, 0, 0.05); };
-  fv({ x: -3.3, y: 0.33, z: 3.04 }); fv({ x: 5.3, y: 0.33, z: 3.04 }); fv({ x: -0.25, y: 0.33, z: 6.04 }); fv({ x: 3.25, y: 0.33, z: 6.04 });
+  const fv = (f) => { L(f, new Box(0.98, 0.42, 0.06), M.cast, 'found'); L(f, new Box(0.82, 0.28, 0.03), M.dark, 'found', 0, 0, 0.035); for (let i = -5; i <= 5; i++) L(f, new Box(0.025, 0.28, 0.025), M.vent, 'found', i * 0.07, 0, 0.055); L(f, new Box(0.82, 0.025, 0.025), M.vent, 'found', 0, 0, 0.055); };
+  fv({ x: -3.3, y: 0.33, z: 3.04 }); fv({ x: 5.3, y: 0.33, z: 3.04 }); fv({ x: -0.6, y: 0.33, z: 6.04 }); fv({ x: 3.6, y: 0.33, z: 6.04 });
   fv({ x: -4.04, y: 0.33, z: -2.6, ry: -PI / 2 }); fv({ x: 13.04, y: 0.33, z: -1.5, ry: PI / 2 });
 
   // ---------- garage / loggia wing ----------
@@ -206,10 +206,12 @@ export function buildHouse(house, reg, solids, opts) {
   box(1.5, 0.06, 1.25, M.mulch, -0.22, 0.03, 6.66, 'zone'); box(1.5, 0.06, 1.25, M.mulch, 3.22, 0.03, 6.66, 'zone');
   box(7, 0.06, 1.2, M.mulch, 9.5, 0.03, -3.65, 'zone');
   const sh = (m, r, x, y, z, sq = 0.8) => B.add(blob(r, x * 7 + z), m, 'zone', x, y, z, 0, T.rnd() * 3, 0, 'XYZ', 1, sq, 1);
-  sh(M.shrub, 0.62, -3.35, 0.45, 3.75); sh(M.shrubDry, 0.55, -1.8, 0.38, 3.8); sh(M.shrub, 0.52, -2.6, 0.35, 4.05, 0.7);
-  sh(M.shrub, 0.55, 5.1, 0.42, 3.75); sh(M.shrubDry, 0.48, -0.25, 0.36, 6.7); sh(M.shrub, 0.55, 3.35, 0.42, 6.75);
+  sh(M.shrub, 0.55, -2.05, 0.42, 3.8); sh(M.shrubDry, 0.45, -1.35, 0.34, 3.85);
+  sh(M.shrub, 0.42, 4.4, 0.34, 3.8);
   for (let i = 0; i < 6; i++) sh(i % 2 ? M.shrub : M.shrubDry, 0.45, 7 + i * 1.1, 0.32, -3.65);
-  for (let i = 0; i < 26; i++) { const y = 0.5 + T.rnd() * 3.2, x = 2.75 + T.rnd() * 0.9 - y * 0.05; B.add(blob(0.18 + T.rnd() * 0.12, i), i % 3 ? M.boug : M.bougLeaf, 'zone', x, y, 6.12 + T.rnd() * 0.15); }
+  for (const tx of [-0.25, 0.35]) box(0.06, 3.2, 0.06, M.post, tx, 1.6, 6.1, 'zone');
+  for (const ty of [1.2, 2.0, 2.8]) box(0.8, 0.05, 0.05, M.post, 0.05, ty, 6.1, 'zone');
+  for (let i = 0; i < 26; i++) { const y = 1.15 + T.rnd() * 2.4, x = -0.35 + T.rnd() * 0.8; B.add(blob(0.18 + T.rnd() * 0.12, i), i % 3 ? M.boug : M.bougLeaf, 'zone', x, y, 6.12 + T.rnd() * 0.15); }
 
   const meshes = B.build(house, reg, solids);
 

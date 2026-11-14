@@ -10,7 +10,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.0.0';
+const VERSION = '3.1.0';
 const root = document.getElementById('wwh3');
 if (root) {
   root.classList.add('wwh3');
@@ -34,13 +34,13 @@ async function start(root, api) {
   await new Promise((r) => requestAnimationFrame(r));
 
   const H = [
-    { k: 'attic', p: [1.5, 6.5, 6.25], v: { t: [1.5, 5.6, 5], az: 0.12, el: 0.14, d: 15 } },
-    { k: 'wood', p: [-0.15, 6.42, 6.75], v: { t: [0.6, 5.6, 5.5], az: -0.38, el: 0.2, d: 15 } },
-    { k: 'gutter', p: [8.2, 3.3, 3.85], v: { t: [10, 3.6, 1], az: 0.32, el: 0.38, d: 19 } },
-    { k: 'eaves', p: [11.9, 3.25, 3.3], v: { t: [11, 3.3, 3], az: 0.42, el: 0.03, d: 11.5 } },
-    { k: 'deck', p: [-7, 2.15, 3.2], v: { t: [-7.5, -0.3, 0], az: -1.15, el: 0.22, d: 17 } },
-    { k: 'found', p: [-3.3, 0.33, 3.15], v: { t: [-2.6, 0.9, 3], az: -0.15, el: 0.14, d: 9.5 } },
-    { k: 'zone', p: [3.35, 1.0, 6.85], v: { t: [1.5, 0.8, 6], az: 0.16, el: 0.42, d: 15 } },
+    { k: 'attic', p: [1.5, 6.46, 6.16], v: { t: [1.5, 5.6, 5], az: 0.12, el: 0.14, d: 15 } },
+    { k: 'wood', p: [-0.8, 6.08, 6.7], v: { t: [0.6, 5.6, 5.5], az: -0.38, el: 0.2, d: 15 } },
+    { k: 'gutter', p: [8.2, 3.2, 3.82], v: { t: [10, 3.6, 1], az: 0.32, el: 0.38, d: 19 } },
+    { k: 'eaves', p: [11.85, 3.33, 3.3], v: { t: [11, 3.3, 3], az: 0.42, el: 0.03, d: 11.5 } },
+    { k: 'deck', p: [-7, 2.05, 3.12], v: { t: [-7.5, -0.3, 0], az: -1.15, el: 0.22, d: 17 } },
+    { k: 'found', p: [-3.3, 0.33, 3.12], v: { t: [-2.6, 0.9, 3], az: -0.15, el: 0.14, d: 9.5 } },
+    { k: 'zone', p: [-2.05, 0.7, 3.95], v: { t: [-0.6, 0.9, 4.6], az: 0.05, el: 0.35, d: 14 } },
   ];
   const DEFV = { t: [2.5, 2.6, 0.5], az: 0.5, el: 0.25, d: 36 };
 
@@ -84,7 +84,7 @@ async function start(root, api) {
   const fx = [embers];
   // ---------- pins + camera rig ----------
   const pins = H.map((h, i) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.textContent = i + 1;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
     b.setAttribute('aria-label', i + 1 + ': ' + api.D[i].t);
     b.addEventListener('mouseenter', () => api.set(i)); b.addEventListener('mouseleave', () => api.set(api.pinned));
     b.addEventListener('click', () => api.pin(i)); pinsEl.appendChild(b); h.v3 = new THREE.Vector3(...h.p); return b;
@@ -128,7 +128,7 @@ async function start(root, api) {
   const px = new Uint8Array(4);
   const draw = () => sketch.render(scene, cam, fx);
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
-  window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench };
+  window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
   let W = 0, Hh = 0;
   function size() {
     const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false); cam.aspect = W / Hh; cam.updateProjectionMatrix();
@@ -167,7 +167,7 @@ async function start(root, api) {
     const occl = (perf.n % 4) === 0;
     H.forEach((h, i) => {
       tmp.copy(h.v3).project(cam); const x = ((tmp.x + 1) / 2) * W, y = ((1 - tmp.y) / 2) * Hh;
-      pins[i].style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+      pins[i].style.translate = x.toFixed(1) + 'px ' + y.toFixed(1) + 'px';
       if (!occl) return;
       const dist = cam.position.distanceTo(h.v3); ray.set(cam.position, h.v3.clone().sub(cam.position).normalize()); ray.far = dist;
       const hit = ray.intersectObjects(solids, false)[0];
