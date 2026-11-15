@@ -20,12 +20,13 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
       tColor: { value: rtColor.texture }, tDepth: { value: rtColor.depthTexture }, tNormal: { value: rtNormal.texture }, tPaper: { value: paperTex }, tFx: { value: rtFx.texture }, useFx: { value: 0 },
       res: { value: new THREE.Vector2(1, 1) }, dpr: { value: 1 }, near: { value: 0.3 }, far: { value: 4000 },
       paper: { value: new THREE.Color(paper).convertLinearToSRGB() }, ink: { value: new THREE.Color(ink).convertLinearToSRGB() }, exposure: { value: 1.75 },
+      uTint: { value: new THREE.Color(1, 1, 1) }, uTintK: { value: 0 }, uHaze: { value: new THREE.Color(1, 1, 1) }, uHazeK: { value: 0 }, uShim: { value: 0 }, uDark: { value: 0 }, uTime: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: /* glsl */ `
       #include <packing>
       uniform sampler2D tColor, tDepth, tNormal, tPaper, tFx;
-      uniform vec2 res; uniform float dpr, near, far, exposure, useFx; uniform vec3 paper, ink;
+      uniform vec2 res; uniform float dpr, near, far, exposure, useFx, uDark, uTintK, uHazeK, uShim, uTime; uniform vec3 paper, ink, uTint, uHaze;
       varying vec2 vUv;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -42,6 +43,14 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
       vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c)); }
       void main(){
         vec2 uv = vUv; vec2 fc = gl_FragCoord.xy / dpr;
+        // heat shimmer: wobble everything just above the flames
+        if (uShim > 0.0 && useFx > 0.5) {
+          vec2 dy = vec2(0.0, 18.0 * dpr / res.y);
+          float hm = texture2D(tFx, uv - dy).a + texture2D(tFx, uv - dy * 2.5).a * 0.8 + texture2D(tFx, uv - dy * 4.5).a * 0.5;
+          hm = clamp(hm, 0.0, 1.0) * uShim;
+          vec2 sw = vec2(noise(fc / 14.0 + vec2(0.0, -uTime * 3.0)), noise(fc / 14.0 + vec2(5.2, -uTime * 3.4))) - 0.5;
+          uv += sw * hm * 5.0 * dpr / res;
+        }
         float d0 = texture2D(tDepth, uv).x;
         float grain = texture2D(tPaper, fc / 300.0).r;
         vec3 pap = paper * (0.955 + 0.07 * grain);
@@ -59,7 +68,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
           float lum = dot(c, vec3(0.299, 0.587, 0.114));
           vec3 wash = mix(vec3(lum), c, 0.7);
           float wv = 0.85 + 0.3 * noise(fc / 140.0) ;                 // uneven watercolor pooling
-          col = mix(pap, wash * pap * 1.1, 0.48 * wv);
+          col = mix(pap, wash * pap * 1.1, mix(0.48, 0.85, uDark * smoothstep(0.2, 0.06, lum)) * wv);
           // pencil hatching in shade (45°), cross-hatch in deep shade
           float br = smoothstep(0.25, 0.65, noise(fc / 18.0));
           float jit = noise(fc / 30.0) * 3.0;
@@ -77,6 +86,12 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
         vec2 q = (uv - 0.5) * vec2(res.x / res.y, 1.0);
         float v = smoothstep(0.62, 1.08, length(q) * 1.05 + (noise(uv * 7.0) - 0.5) * 0.18);
         col = mix(col, pap, v);
+        // smoke-filled air: warm brown cast and heavier haze toward the top of the frame
+        if (uTintK > 0.0) {
+          col = mix(col, col * uTint, uTintK);
+          float hz = uHazeK * (0.35 + 0.65 * smoothstep(0.15, 1.0, vUv.y)) * (0.8 + 0.4 * noise(fc / 160.0 + uTime * 0.05));
+          col = mix(col, uHaze, clamp(hz, 0.0, 0.85));
+        }
         if (useFx > 0.5) { vec4 fx = texture2D(tFx, uv); if (fx.a > 0.002) { vec3 fc2 = toSRGB(clamp(fx.rgb / fx.a, 0.0, 4.0)); col = col * (1.0 - min(fx.a, 1.0)) + min(fc2, vec3(1.0)) * min(fx.a, 1.0); } }
         gl_FragColor = vec4(col, 1.0);
       }`,
@@ -85,6 +100,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
   const quad = new FullScreenQuad(mat);
 
   return {
+    atmo(o) { const u = mat.uniforms; u.uTint.value.copy(o.tint); u.uTintK.value = o.tintK; u.uHaze.value.copy(o.haze); u.uHazeK.value = o.hazeK; u.uShim.value = o.shim; u.uDark.value = 1; u.uTime.value = o.time; },
     setSize(w, h, pr) {
       const W = Math.max(1, Math.floor(w * pr)), H = Math.max(1, Math.floor(h * pr));
       if (rtColor.width === W && rtColor.height === H) { mat.uniforms.dpr.value = pr; return; }
@@ -107,6 +123,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
         const ac = r.autoClear; r.autoClear = false;
         r.setRenderTarget(rtFx); r.setClearColor(0x000000, 0); r.clear();
         scene.overrideMaterial = depthOnly; r.render(scene, cam); scene.overrideMaterial = null;
+        if (fxScene.userData.soft) fxScene.userData.soft(rtColor.depthTexture, rtFx.width, rtFx.height, cam);
         r.render(fxScene, cam);
         r.autoClear = ac;
       }

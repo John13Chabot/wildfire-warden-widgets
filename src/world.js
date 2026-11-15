@@ -5,6 +5,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+let CTR = false;
 const smooth = (v) => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v));
 
 // ---------- terrain height ----------
@@ -46,11 +47,13 @@ function colorize(g, base, lift = 0.18, jitter = 0.06) {
     c[i * 3] = t.r; c[i * 3 + 1] = t.g; c[i * 3 + 2] = t.b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  if (CTR) { const ct = new THREE.Vector3(); g.boundingBox.getCenter(ct); const a = new Float32Array(p.count * 3); for (let i = 0; i < p.count; i++) { a[i * 3] = ct.x; a[i * 3 + 1] = ct.y; a[i * 3 + 2] = ct.z; } g.setAttribute('ctr', new THREE.BufferAttribute(a, 3)); }
   return g;
 }
 const place = (g, x, y, z, sx = 1, sy = 1, sz = 1, ry = 0) => { g = g.clone(); g.applyMatrix4(new THREE.Matrix4().compose(V(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), V(sx, sy, sz))); return g; };
 
-export function buildWorld(scene, { small }) {
+export function buildWorld(scene, { small, fire = false }) {
+  CTR = fire; const TREES = [], canopies = [];
   // ---------- terrain ----------
   const S = 220, N = small ? 120 : 160;
   const tg = new THREE.PlaneGeometry(S, S, N, N); tg.rotateX(-Math.PI / 2);
@@ -133,6 +136,7 @@ export function buildWorld(scene, { small }) {
     } };
     for (const e of ends) lobes(V(e.x, e.y + 0.5 * s, e.z), 1.7 * s * (opt.blob || 1), 10);
     lobes(V(top.x, top.y + 2.0 * s, top.z), 2.4 * s * (opt.blob || 1), 12);
+    if (x < -8) TREES.push({ x: top.x, y: top.y + 0.6 * s, z: top.z, r: 3.6 * s * (opt.blob || 1), h: 3.4 * s });
   }
   function euc(x, z, s) {
     bucket(x, z);
@@ -140,6 +144,7 @@ export function buildWorld(scene, { small }) {
     const pts = []; for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(V(o.x + lean.x * t * t + Math.sin(t * 5 + x) * 0.3 * s, o.y + H * 0.6 * t, o.z + lean.z * t * t + Math.cos(t * 4 + z) * 0.3 * s)); }
     limb(eucW, pts, 0.42 * s, 0.24 * s);
     const fork = pts[5];
+    if (x < -8) TREES.push({ x: fork.x, y: fork.y - H * 0.05, z: fork.z, r: 2.6 * s, h: H * 0.45 });
     for (let b = 0; b < 3; b++) {
       const ang = b * 2.1 + T.rr(-0.4, 0.4), d = T.rr(1.4, 2.8) * s;
       const e = V(fork.x + Math.cos(ang) * d, fork.y + H * T.rr(0.3, 0.42), fork.z + Math.sin(ang) * d);
@@ -161,7 +166,7 @@ export function buildWorld(scene, { small }) {
   cypress(14.7, 3.8, 1); cypress(14.7, -1.6, 0.9); cypress(-5.6, -6.6, 0.85);
 
   for (const [b, cast] of [[near, true], [far, false]]) {
-    if (b.can.length) { const canopy = new THREE.Mesh(mergeGeometries(b.can), canopyM); canopy.castShadow = cast; canopy.receiveShadow = true; scene.add(canopy); }
+    if (b.can.length) { const canopy = new THREE.Mesh(mergeGeometries(b.can), canopyM); canopy.castShadow = cast; canopy.receiveShadow = true; scene.add(canopy); canopies.push(canopy); }
     for (const [arr, m] of [[b.oakW, oakBarkM], [b.eucW, eucBarkM]]) {
       if (!arr.length) continue;
       const geos = arr.map((g) => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; });
@@ -202,4 +207,77 @@ export function buildWorld(scene, { small }) {
     grass.setMatrixAt(gi, mm); grass.setColorAt(gi++, c.set(T.rnd() < 0.7 ? '#a8905a' : '#8a7a4a').offsetHSL(0, 0, T.rr(-0.05, 0.05)));
   }
   grass.count = gi; grass.receiveShadow = true; grass.name = 'grass'; scene.add(grass);
+  CTR = false;
+  return { TREES, burn: fire ? makeBurn({ terr, canopies, sh, grass }) : null };
+}
+
+// ---------- wildfire burn scar: hillside vegetation and ground char as the front passes ----------
+function makeBurn({ terr, canopies, sh, grass }) {
+  const X0 = -8;                                         // only the hillside west of here burns
+  const h = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
+  const CHAR = new THREE.Color(0.075, 0.064, 0.055), FIRE = new THREE.Color(1.0, 0.42, 0.1), ASH = new THREE.Color(0.32, 0.3, 0.28);
+  const tc = new THREE.Color();
+  // terrain vertices
+  const tCol = terr.geometry.attributes.color, tPos = terr.geometry.attributes.position, tc0 = tCol.array.slice(), tI = [];
+  for (let i = 0; i < tPos.count; i++) if (tPos.getX(i) < X0 + 2) tI.push(i);
+  const tJ = tI.map((i) => (h(tPos.getX(i), tPos.getZ(i)) - 0.5) * 3 + (T.fbm(tPos.getX(i) * 0.08, tPos.getZ(i) * 0.08, 3) - 0.5) * 8);
+  // canopy vertices grouped by lobe centre
+  const cv = canopies.map((m) => {
+    const g = m.geometry, P = g.attributes.position, C = g.attributes.color, Q = g.attributes.ctr, I = [];
+    for (let i = 0; i < P.count; i++) if (Q.getX(i) < X0) I.push(i);
+    return { g, P, C, Q, I, p0: P.array.slice(), c0: C.array.slice(), j: I.map((i) => h(Q.getX(i), Q.getZ(i)) * 4) };
+  });
+  // shrubs + grass instances
+  const inst = (im) => {
+    const out = [], m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), c = new THREE.Color();
+    for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, m); m.decompose(p, q, s); if (p.x < X0) { im.getColorAt(i, c); out.push({ i, p: p.clone(), q: q.clone(), s: s.clone(), c: c.clone(), j: h(p.x, p.z) * 3 }); } }
+    return out;
+  };
+  const SH = inst(sh), GR = inst(grass);
+  const M = new THREE.Matrix4(), S = new THREE.Vector3(), P2 = new THREE.Vector3();
+  let last = null;
+  // state for an element the front reached `age` metres ago
+  const st = (age) => (age < 0 ? 0 : age < 2.5 ? 1 : 2);
+  return function burn(fx) {
+    if (last !== null && Math.abs(fx - last) < 0.02) return;
+    last = fx;
+    // ground: glowing line at the front, char behind, ash-grey long after
+    for (let n = 0; n < tI.length; n++) {
+      const i = tI[n], age = fx - tPos.getX(i) + tJ[n];
+      if (age < 0) { tCol.setXYZ(i, tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]); continue; }
+      tc.setRGB(tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]);
+      if (age < 1.5) tc.lerp(FIRE, 0.85 * (1 - age / 1.5) + 0.15);
+      else tc.lerp(CHAR, Math.min(1, 0.6 + age / 6)).lerp(ASH, Math.max(0, Math.min(0.35, (age - 14) / 30)));
+      tCol.setXYZ(i, tc.r, tc.g, tc.b);
+    }
+    tCol.needsUpdate = true;
+    // tree crowns: flare orange, then char and shrink to a burnt skeleton
+    for (const o of cv) {
+      const { P, C, Q, I, p0, c0, j } = o;
+      for (let n = 0; n < I.length; n++) {
+        const i = I[n], age = fx - Q.getX(i) - j[n] - 1.5;
+        const cx = Q.getX(i), cy = Q.getY(i), cz = Q.getZ(i);
+        if (age < 0) { P.setXYZ(i, p0[i * 3], p0[i * 3 + 1], p0[i * 3 + 2]); C.setXYZ(i, c0[i * 3], c0[i * 3 + 1], c0[i * 3 + 2]); continue; }
+        const k = age < 3 ? 1 : Math.max(0.3, 1 - (age - 3) / 9);
+        P.setXYZ(i, cx + (p0[i * 3] - cx) * k, cy + (p0[i * 3 + 1] - cy) * k - (1 - k) * 0.8, cz + (p0[i * 3 + 2] - cz) * k);
+        tc.setRGB(c0[i * 3], c0[i * 3 + 1], c0[i * 3 + 2]);
+        if (age < 3) tc.lerp(FIRE, 0.4 + 0.5 * Math.sin(Math.PI * age / 3)); else tc.lerp(CHAR, Math.min(1, 0.7 + (age - 3) / 8));
+        C.setXYZ(i, tc.r, tc.g, tc.b);
+      }
+      if (I.length) { P.needsUpdate = true; C.needsUpdate = true; }
+    }
+    // brush + grass: flare, then low black stubble
+    for (const [im, L, low] of [[sh, SH, 0.35], [grass, GR, 0.25]]) {
+      for (const e of L) {
+        const age = fx - e.p.x - e.j, s = st(age);
+        if (s === 0) { M.compose(e.p, e.q, e.s); im.setMatrixAt(e.i, M); im.setColorAt(e.i, e.c); continue; }
+        const k = s === 1 ? 1 : Math.max(low, 1 - (age - 2.5) / 4);
+        S.set(e.s.x * (0.6 + 0.4 * k), e.s.y * k, e.s.z * (0.6 + 0.4 * k));
+        P2.copy(e.p); P2.y -= e.s.y * (1 - k) * 0.4;
+        M.compose(P2, e.q, S); im.setMatrixAt(e.i, M);
+        tc.copy(e.c).lerp(s === 1 ? FIRE : CHAR, s === 1 ? 0.75 : 0.92); im.setColorAt(e.i, tc);
+      }
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+  };
 }

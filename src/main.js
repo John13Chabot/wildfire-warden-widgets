@@ -10,14 +10,16 @@ import cssF from './ui-f.css';
 import htmlF from './ui-f.html';
 import { initFire } from './ui-f.js';
 import { createFireFX, WIND } from './fire.js';
+import { SOFT } from './fireshader.js';
 import { buildWorld, hgt } from './world.js';
 import { buildHouse } from './house.js';
+import { createDamage } from './damage.js';
 import * as T from './tex.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.6.0';
+const VERSION = '3.8.0';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 const root = rootH || rootS || rootF;
 const MODE = rootH ? 'h' : rootS ? 's' : 'f';
@@ -77,9 +79,9 @@ async function start(root, api) {
   const house = new THREE.Group(); scene.add(house);
   const reg = {}, solids = [];
   T.reseed(11);
-  buildWorld(scene, { small: SMALL });
+  const WB = buildWorld(scene, { small: SMALL, fire: MODE === 'f' });
   T.reseed(77);
-  const { lights } = buildHouse(house, reg, solids, { hgt });
+  const { lights, M: HM, tiles } = buildHouse(house, reg, solids, { hgt });
   for (const m of solids) m.geometry.computeBoundsTree();
 
   // ---------- fire atmosphere: smoke + horizon glow + embers ----------
@@ -93,9 +95,14 @@ async function start(root, api) {
   const sketch = createSketch(r);
   const fx = [embers];
   // ---------- fire-test mode: shared FX + a second sketch pipeline for side-by-side ----------
-  const F = MODE === 'f' ? createFireFX({ scene, reg, hgt, RM, SMALL }) : null;
+  const D = MODE === 'f' ? createDamage({ scene, M: HM, tiles, SMALL }) : null;
+  const F = MODE === 'f' ? createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES: WB.TREES, burn: WB.burn }) : null;
+  const SUN0 = sun.color.clone(), SUNI = sun.intensity, HS0 = hemi.color.clone(), HG0 = hemi.groundColor.clone(), HI = hemi.intensity;
+  const SMOKY = new THREE.Color(1, 0.5, 0.24), GREYL = new THREE.Color(0.78, 0.76, 0.74), atmo = { tint: new THREE.Color(), tintK: 0, haze: new THREE.Color(), hazeK: 0, shim: SMALL ? 0 : 1, time: 0 };
+  const TINT_B = new THREE.Color(1.0, 0.8, 0.64), TINT_G = new THREE.Color(0.82, 0.8, 0.78), HAZE_B = new THREE.Color(0.6, 0.5, 0.42), HAZE_G = new THREE.Color(0.66, 0.64, 0.61);
   const sketch2 = F ? createSketch(r) : null;
   const fxScene = F ? new THREE.Scene() : null;
+  if (fxScene) fxScene.userData.soft = (d, w, h, c) => { SOFT.tSD.value = d; SOFT.uSRes.value.set(w, h); SOFT.uSNear.value = c.near; SOFT.uSFar.value = c.far; };
   if (F) {
     scene.remove(embers); scene.remove(F.group); fxScene.add(embers); fxScene.add(F.group);
     Object.assign(embers.material, { opacity: 0, size: SMALL ? 1.6 : 2.0, color: new THREE.Color(1.6, 0.85, 0.3), blending: THREE.NormalBlending, sizeAttenuation: true });
@@ -194,13 +201,19 @@ async function start(root, api) {
     requestAnimationFrame(frame); if (!vis) return;
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
     if (tour.on && !tour.hold && !document.hidden) { tour.t += Math.min(raw, 0.5); if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); if (progEl) progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
-    let wf = 1;
+    let wf = 1, gst = 1;
     if (F) {
       api.fire.tick(raw); F.tick(dt);
       wf = WIND[api.fire.st.wind].f;
-      const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf);
+      const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf); gst = envS.gust;
       embers.material.opacity = api.fire.st.ran ? Math.min(1, envS.emberLevel) : 0.15;
       fire.intensity = 0.25 + (api.fire.st.ran ? envS.glow : 0);
+      // smoke-filled sky: sun dims and reddens, ambient goes brown, then clears to grey haze
+      const k = api.fire.st.ran ? envS.smoke : 0, g = api.fire.st.ran ? envS.grey : 0;
+      sun.color.copy(SUN0).lerp(SMOKY, k * (1 - g)).lerp(GREYL, k * g); sun.intensity = SUNI * (1 - 0.72 * k);
+      hemi.color.copy(HS0).lerp(SMOKY, 0.55 * k * (1 - g)).lerp(GREYL, 0.6 * k * g); hemi.groundColor.copy(HG0).lerp(new THREE.Color(0.25, 0.2, 0.17), k); hemi.intensity = HI * (1 - 0.4 * k);
+      atmo.tint.copy(TINT_B).lerp(TINT_G, g); atmo.tintK = k * 0.6; atmo.haze.copy(HAZE_B).lerp(HAZE_G, g); atmo.hazeK = k * 0.38; atmo.time = t;
+      sketch.atmo(atmo); sketch2.atmo(atmo);
     }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);
     cur.az += (goal.az - cur.az) * f; cur.el += (goal.el - cur.el) * f; cur.d += (goal.d - cur.d) * f; cur.t.lerp(goal.t, f);
@@ -210,7 +223,8 @@ async function start(root, api) {
     if (active.length) { const s = 0.7 + 0.3 * Math.sin(t * 4); active.forEach((k) => reg[k] && reg[k].forEach((m) => { m.material.emissive.set(0xe85d04); m.material.emissiveIntensity = s; })); }
     if (!RM) {
       const p = eg.attributes.position.array;
-      for (let i = 0; i < N; i++) { p[i * 3] += ev[i] * dt * 60 * wf; p[i * 3 + 1] += Math.sin(t * 2 + i) * 0.008 + 0.006; p[i * 3 + 2] += Math.cos(t + i) * 0.006; if (p[i * 3] > 28 || p[i * 3 + 1] > 24) { p[i * 3] = -45; p[i * 3 + 1] = T.rr(MODE === 'f' ? 0 : -3, 14); } }
+      const ws = F ? wf * wf * gst : 1, tb = F ? 0.6 + 0.5 * wf : 1, lift = F ? 0.004 + 0.006 / wf : 0.006;
+      for (let i = 0; i < N; i++) { p[i * 3] += ev[i] * dt * 60 * ws; p[i * 3 + 1] += Math.sin(t * 2 + i) * 0.008 * tb + lift; p[i * 3 + 2] += Math.cos(t * (0.8 + wf) + i) * 0.006 * tb; if (p[i * 3] > 28 || p[i * 3 + 1] > 24) { p[i * 3] = -45; p[i * 3 + 1] = T.rr(MODE === 'f' ? 0 : -3, 14); } }
       eg.attributes.position.needsUpdate = true;
     }
     draw();

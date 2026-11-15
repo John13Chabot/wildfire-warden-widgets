@@ -92,7 +92,7 @@ export function initFire(root) {
             const d = lab(n++);
             d.className = 'wwh3f-lab ' + (e.kind === 'stop' ? 'stop' : big ? 'big' : '');
             d.textContent = e.text;
-            d.style.left = p[0].toFixed(0) + 'px'; d.style.top = Math.max(p[1] - 10, 96).toFixed(0) + 'px'; d.style.opacity = 1; d.style.display = '';
+            d.style.left = p[0].toFixed(0) + 'px'; const off = s && root.classList.contains('is-vert') ? d.parentElement.clientHeight / 2 : 0; d.style.top = Math.max(p[1] - 10, off + 96).toFixed(0) + 'px'; d.style.opacity = 1; d.style.display = '';
           }
         }
       }

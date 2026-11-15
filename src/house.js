@@ -241,5 +241,5 @@ export function buildHouse(house, reg, solids, opts) {
     }
   }
   im.count = i; house.add(im);
-  return { lights: [V(1.5, 2.4, 6.6), V(9.5, 2.4, 3.6), V(-4.5, 2.5, -1)] };
+  return { M, tiles: im, lights: [V(1.5, 2.4, 6.6), V(9.5, 2.4, 3.6), V(-4.5, 2.5, -1)] };
 }
