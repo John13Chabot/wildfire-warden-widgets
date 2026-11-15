@@ -6,6 +6,10 @@ import { initUI } from './ui.js';
 import cssS from './ui-s.css';
 import htmlS from './ui-s.html';
 import { initServices } from './ui-s.js';
+import cssF from './ui-f.css';
+import htmlF from './ui-f.html';
+import { initFire } from './ui-f.js';
+import { createFireFX, WIND } from './fire.js';
 import { buildWorld, hgt } from './world.js';
 import { buildHouse } from './house.js';
 import * as T from './tex.js';
@@ -13,17 +17,17 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.5.0';
-const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s');
-const root = rootH || rootS;
-const MODE = rootH ? 'h' : 's';
+const VERSION = '3.6.0';
+const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
+const root = rootH || rootS || rootF;
+const MODE = rootH ? 'h' : rootS ? 's' : 'f';
 if (root) {
   root.classList.add('wwh3');
-  if (MODE === 's') root.classList.add('wwh3s');
-  root.setAttribute('aria-label', MODE === 's' ? 'Interactive 3D map of where each service protects a home' : 'Interactive 3D home vulnerability map');
-  root.innerHTML = '<style>' + css + (MODE === 's' ? cssS : '') + '</style>' + (MODE === 's' ? htmlS : html);
+  if (MODE !== 'h') root.classList.add('wwh3' + MODE);
+  root.setAttribute('aria-label', MODE === 's' ? 'Interactive 3D map of where each service protects a home' : MODE === 'f' ? 'Interactive wildfire simulation comparing a home with and without hardening upgrades' : 'Interactive 3D home vulnerability map');
+  root.innerHTML = '<style>' + css + (MODE === 's' ? cssS : MODE === 'f' ? cssF : '') + '</style>' + (MODE === 's' ? htmlS : MODE === 'f' ? htmlF : html);
   root.dataset.version = VERSION;
-  const api = MODE === 's' ? initServices(root) : initUI(root);
+  const api = MODE === 's' ? initServices(root) : MODE === 'f' ? initFire(root) : initUI(root);
   start(root, api).catch((err) => {
     const m = root.querySelector('.wwh3-msg');
     if (m) m.textContent = '3D view unavailable on this device. Use the list below to explore.';
@@ -48,7 +52,7 @@ async function start(root, api) {
     { k: 'found', p: [-3.3, 0.33, 3.12], v: { t: [-2.6, 0.9, 3], az: -0.15, el: 0.14, d: 9.5 } },
     { k: 'zone', p: [-2.05, 0.7, 3.95], v: { t: [-0.6, 0.9, 4.6], az: 0.05, el: 0.35, d: 14 } },
   ];
-  const DEFV = { t: [2.5, 2.6, 0.5], az: 0.5, el: 0.25, d: 36 };
+  let DEFV = { t: [2.5, 2.6, 0.5], az: 0.5, el: 0.25, d: 36 };
 
   // ---------- renderer ----------
   const r = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -80,14 +84,23 @@ async function start(root, api) {
 
   // ---------- fire atmosphere: smoke + horizon glow + embers ----------
   const glowT = T.glowSprite(); const smoke = [];
-  const N = RM ? 0 : SMALL ? 140 : 260, ep = new Float32Array(N * 3), ev = [];
-  for (let i = 0; i < N; i++) { ep[i * 3] = T.rr(-45, 25); ep[i * 3 + 1] = T.rr(-3, 22); ep[i * 3 + 2] = T.rr(-20, 30); ev.push(T.rr(0.02, 0.07)); }
+  const N = RM ? 0 : (MODE === 'f' ? (SMALL ? 400 : 900) : SMALL ? 140 : 260), ep = new Float32Array(N * 3), ev = [];
+  for (let i = 0; i < N; i++) { ep[i * 3] = T.rr(-45, 25); ep[i * 3 + 1] = MODE === 'f' ? T.rr(0, 14) : T.rr(-3, 22); ep[i * 3 + 2] = MODE === 'f' ? T.rr(-12, 18) : T.rr(-20, 30); ev.push(T.rr(0.02, 0.07)); }
   const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(ep, 3));
   const embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowT, color: 0xff7a1a, size: 0.26, transparent: true, depthWrite: false }));
   scene.add(embers);
 
   const sketch = createSketch(r);
   const fx = [embers];
+  // ---------- fire-test mode: shared FX + a second sketch pipeline for side-by-side ----------
+  const F = MODE === 'f' ? createFireFX({ scene, reg, hgt, RM, SMALL }) : null;
+  const sketch2 = F ? createSketch(r) : null;
+  const fxScene = F ? new THREE.Scene() : null;
+  if (F) {
+    scene.remove(embers); scene.remove(F.group); fxScene.add(embers); fxScene.add(F.group);
+    Object.assign(embers.material, { opacity: 0, size: SMALL ? 1.6 : 2.0, color: new THREE.Color(1.6, 0.85, 0.3), blending: THREE.NormalBlending, sizeAttenuation: true });
+  }
+  const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 };
   // ---------- pins + camera rig ----------
   const pins = H.map((h, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
@@ -95,6 +108,7 @@ async function start(root, api) {
     if (MODE === 'h') { b.addEventListener('mouseenter', () => api.set(i)); b.addEventListener('mouseleave', () => api.set(api.pinned)); b.addEventListener('click', () => api.pin(i)); }
     else b.addEventListener('click', () => api.pickKey(H[i].k)); pinsEl.appendChild(b); h.v3 = new THREE.Vector3(...h.p); return b;
   });
+  if (F) DEFV = FV;
   const cur = { az: DEFV.az, el: DEFV.el, d: DEFV.d, t: new THREE.Vector3(...DEFV.t) }, goal = { az: cur.az, el: cur.el, d: cur.d, t: cur.t.clone() };
   let flying = false, user = false, active = [];
   const clampEl = (v) => Math.min(0.95, Math.max(0.02, v)), clampAz = (v) => Math.min(1.45, Math.max(-1.45, v));
@@ -146,14 +160,26 @@ async function start(root, api) {
   }
   const perf = { n: 0, acc: 0, settleAt: 0, drops: 0 };
   const px = new Uint8Array(4);
-  const draw = () => sketch.render(scene, cam, fx);
+  const split = () => (F && api.fire.st.cmp ? (W / Hh < 0.95 ? 'v' : 'h') : null);
+  const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
+  const draw = !F ? () => sketch.render(scene, cam, fx) : () => {
+    const st = api.fire.st, hv = halves();
+    if (!hv[0]) { F.apply(st.sims[1], st.T); sketch.render(scene, cam, fx, fxScene); return; }
+    r.setScissorTest(true);
+    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
+    r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
+  };
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
   window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
   let W = 0, Hh = 0;
   function size() {
-    const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false); cam.aspect = W / Hh; cam.updateProjectionMatrix();
-    sketch.setSize(W, Hh, r.getPixelRatio());
+    const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false);
+    const sp = F ? split() : null, w = sp === 'h' ? W / 2 : W, h = sp === 'v' ? Hh / 2 : Hh;
+    cam.aspect = w / h; cam.updateProjectionMatrix();
+    sketch.setSize(w, h, r.getPixelRatio()); if (sketch2) sketch2.setSize(w, h, r.getPixelRatio());
+    if (F) { root.classList.toggle('is-vert', sp === 'v'); }
   }
+  if (F) api.onLayout = () => size();
   new ResizeObserver(size).observe(stage); size(); setTier(tier);
   // pick a starting quality tier from a quick synchronous benchmark (skipped on small screens)
   if (tier > 0) {
@@ -168,6 +194,14 @@ async function start(root, api) {
     requestAnimationFrame(frame); if (!vis) return;
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
     if (tour.on && !tour.hold && !document.hidden) { tour.t += Math.min(raw, 0.5); if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); if (progEl) progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
+    let wf = 1;
+    if (F) {
+      api.fire.tick(raw); F.tick(dt);
+      wf = WIND[api.fire.st.wind].f;
+      const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf);
+      embers.material.opacity = api.fire.st.ran ? Math.min(1, envS.emberLevel) : 0.15;
+      fire.intensity = 0.25 + (api.fire.st.ran ? envS.glow : 0);
+    }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);
     cur.az += (goal.az - cur.az) * f; cur.el += (goal.el - cur.el) * f; cur.d += (goal.d - cur.d) * f; cur.t.lerp(goal.t, f);
     const d = cur.d * (cam.aspect < 1.4 ? 1.15 + (1.4 - Math.max(0.7, cam.aspect)) * 0.55 : 1);
@@ -176,7 +210,7 @@ async function start(root, api) {
     if (active.length) { const s = 0.7 + 0.3 * Math.sin(t * 4); active.forEach((k) => reg[k] && reg[k].forEach((m) => { m.material.emissive.set(0xe85d04); m.material.emissiveIntensity = s; })); }
     if (!RM) {
       const p = eg.attributes.position.array;
-      for (let i = 0; i < N; i++) { p[i * 3] += ev[i] * dt * 60; p[i * 3 + 1] += Math.sin(t * 2 + i) * 0.008 + 0.006; p[i * 3 + 2] += Math.cos(t + i) * 0.006; if (p[i * 3] > 28 || p[i * 3 + 1] > 24) { p[i * 3] = -45; p[i * 3 + 1] = T.rr(-3, 14); } }
+      for (let i = 0; i < N; i++) { p[i * 3] += ev[i] * dt * 60 * wf; p[i * 3 + 1] += Math.sin(t * 2 + i) * 0.008 + 0.006; p[i * 3 + 2] += Math.cos(t + i) * 0.006; if (p[i * 3] > 28 || p[i * 3 + 1] > 24) { p[i * 3] = -45; p[i * 3 + 1] = T.rr(MODE === 'f' ? 0 : -3, 14); } }
       eg.attributes.position.needsUpdate = true;
     }
     draw();
@@ -185,6 +219,16 @@ async function start(root, api) {
     if (perf.n > 30 && tier > 0 && raw < 0.2) { perf.acc += raw; if (perf.n - 30 >= 40) { const avg = perf.acc / 40; perf.last = avg; if (avg > 1 / 32) { setTier(tier - 1); perf.drops++; } perf.n = 0; perf.acc = 0; } }
     if (first) { first = false; msg && msg.remove(); }
     if ((perf.n % 30) === 1 && (Math.abs(stage.clientWidth - W) > 1 || Math.abs(stage.clientHeight - Hh) > 1)) size();
+    if (F) {
+      const hv = halves();
+      api.fire.labels((s, k) => {
+        const rc = hv[s]; if (!rc) return null; const p = F.EMIT[k] && F.EMIT[k][0]; if (!p) return null;
+        tmp.set(p[0], p[1], p[2]).project(cam); if (tmp.z > 1) return null;
+        const x = rc[0] + ((tmp.x + 1) / 2) * rc[2], y = (Hh - rc[1] - rc[3]) + ((1 - tmp.y) / 2) * rc[3];
+        return x < rc[0] || x > rc[0] + rc[2] || y < Hh - rc[1] - rc[3] || y > Hh - rc[1] ? null : [x, y];
+      });
+      return;
+    }
     const occl = (perf.n % 4) === 0;
     H.forEach((h, i) => {
       tmp.copy(h.v3).project(cam); const x = ((tmp.x + 1) / 2) * W, y = ((1 - tmp.y) / 2) * Hh;

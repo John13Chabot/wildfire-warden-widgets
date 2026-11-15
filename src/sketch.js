@@ -9,20 +9,23 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
   const rtColor = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   rtColor.depthTexture = new THREE.DepthTexture(1, 1);
   const rtNormal = new THREE.WebGLRenderTarget(1, 1);
+  // overlay pass for fire/embers: drawn crisp on top of the sketch, but still hidden behind the house
+  const rtFx = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
   const normalMat = new THREE.MeshNormalMaterial();
   const paperTex = T.noiseGray(256, 64, 3); paperTex.wrapS = paperTex.wrapT = THREE.RepeatWrapping;
 
   const mat = new THREE.ShaderMaterial({
     uniforms: {
-      tColor: { value: rtColor.texture }, tDepth: { value: rtColor.depthTexture }, tNormal: { value: rtNormal.texture }, tPaper: { value: paperTex },
+      tColor: { value: rtColor.texture }, tDepth: { value: rtColor.depthTexture }, tNormal: { value: rtNormal.texture }, tPaper: { value: paperTex }, tFx: { value: rtFx.texture }, useFx: { value: 0 },
       res: { value: new THREE.Vector2(1, 1) }, dpr: { value: 1 }, near: { value: 0.3 }, far: { value: 4000 },
       paper: { value: new THREE.Color(paper).convertLinearToSRGB() }, ink: { value: new THREE.Color(ink).convertLinearToSRGB() }, exposure: { value: 1.75 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: /* glsl */ `
       #include <packing>
-      uniform sampler2D tColor, tDepth, tNormal, tPaper;
-      uniform vec2 res; uniform float dpr, near, far, exposure; uniform vec3 paper, ink;
+      uniform sampler2D tColor, tDepth, tNormal, tPaper, tFx;
+      uniform vec2 res; uniform float dpr, near, far, exposure, useFx; uniform vec3 paper, ink;
       varying vec2 vUv;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -74,6 +77,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
         vec2 q = (uv - 0.5) * vec2(res.x / res.y, 1.0);
         float v = smoothstep(0.62, 1.08, length(q) * 1.05 + (noise(uv * 7.0) - 0.5) * 0.18);
         col = mix(col, pap, v);
+        if (useFx > 0.5) { vec4 fx = texture2D(tFx, uv); if (fx.a > 0.002) { vec3 fc2 = toSRGB(clamp(fx.rgb / fx.a, 0.0, 4.0)); col = col * (1.0 - min(fx.a, 1.0)) + min(fc2, vec3(1.0)) * min(fx.a, 1.0); } }
         gl_FragColor = vec4(col, 1.0);
       }`,
     depthTest: false, depthWrite: false,
@@ -84,10 +88,10 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
     setSize(w, h, pr) {
       const W = Math.max(1, Math.floor(w * pr)), H = Math.max(1, Math.floor(h * pr));
       if (rtColor.width === W && rtColor.height === H) { mat.uniforms.dpr.value = pr; return; }
-      for (const rt of [rtColor, rtNormal]) { rt.setSize(W, H); if (rt.depthTexture) { rt.depthTexture.image.width = W; rt.depthTexture.image.height = H; } rt.dispose(); }
+      for (const rt of [rtColor, rtNormal, rtFx]) { rt.setSize(W, H); if (rt.depthTexture) { rt.depthTexture.image.width = W; rt.depthTexture.image.height = H; } rt.dispose(); }
       mat.uniforms.res.value.set(W, H); mat.uniforms.dpr.value = pr;
     },
-    render(scene, cam, hideInNormal = []) {
+    render(scene, cam, hideInNormal = [], fxScene = null) {
       mat.uniforms.near.value = cam.near; mat.uniforms.far.value = cam.far;
       // normal pass (no shadows needed)
       for (const o of hideInNormal) o.visible = false;
@@ -97,6 +101,15 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
       // color pass (shadows updated once per frame here)
       r.shadowMap.needsUpdate = true;
       r.setRenderTarget(rtColor); r.setClearColor(0xffffff, 1); r.clear(); r.render(scene, cam);
+      mat.uniforms.useFx.value = fxScene ? 1 : 0;
+      if (fxScene) {
+        // depth-only scene pass, then fire sprites/embers on top (occluded by the house and trees)
+        const ac = r.autoClear; r.autoClear = false;
+        r.setRenderTarget(rtFx); r.setClearColor(0x000000, 0); r.clear();
+        scene.overrideMaterial = depthOnly; r.render(scene, cam); scene.overrideMaterial = null;
+        r.render(fxScene, cam);
+        r.autoClear = ac;
+      }
       r.setRenderTarget(null); quad.render(r);
     },
   };
