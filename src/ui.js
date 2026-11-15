@@ -54,5 +54,10 @@ D.forEach(function(d,i){var c=document.createElement('button');c.type='button';c
 api.set=function(i,fly){if(i!==api.cur){api.cur=i;for(var k=0;k<D.length;k++){chips[k].classList.toggle('is-active',k===i);chips[k].setAttribute('aria-pressed',k===i)}panel.innerHTML=i==null?DEF:tpl(D[i],i);panel.scrollTop=0}api.ls.forEach(function(f){f(i,!!fly)})};
 api.pin=function(i){api.pinned=i;api.set(i,true)};
 root._wwh=api;api.set(null);
-
+// "How do these upgrades work?": run the tour from item 1; each stop tells that upgrade's story on the model
+var how=root.querySelector('.wwh3-how');
+if(how)how.addEventListener('click',function(){
+ var st=root.querySelector('.wwh3-stage'),b=st.getBoundingClientRect();if(b.top<0||b.bottom>innerHeight)st.scrollIntoView({behavior:'smooth',block:'center'});
+ if(api.startTour)api.startTour();
+});
 return root._wwh;}

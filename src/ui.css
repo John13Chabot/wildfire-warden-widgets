@@ -49,6 +49,9 @@
 .wwh3-foot{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}
 .wwh3-cta2{display:inline-block;color:#fff;font-weight:700;text-decoration:none;padding:13px 20px;border-radius:8px;border:2px solid var(--o);white-space:nowrap}
 .wwh3-cta2:hover{background:rgba(232,93,4,.15)}
+button.wwh3-cta2{background:none;font:inherit;font-weight:700;cursor:pointer}
+.wwh3-full{align-self:center;color:#fff;opacity:.8;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+.wwh3-full:hover{opacity:1}
 .wwh3-cta{display:inline-block;background:var(--o);color:#fff;font-weight:700;text-decoration:none;padding:14px 22px;border-radius:8px;white-space:nowrap}
 .wwh3-cta:hover{background:#ff6d0f}
 @keyframes wwh3-pulse{0%{transform:scale(1);opacity:.9}100%{transform:scale(2);opacity:0}}

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Builder, std, segment } from './build.js';
 import * as T from './tex.js';
+import { FUELFX, cellFuel } from './fuelfx.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -136,7 +137,7 @@ export function buildWorld(scene, { small, fire = false }) {
     } };
     for (const e of ends) lobes(V(e.x, e.y + 0.5 * s, e.z), 1.7 * s * (opt.blob || 1), 10);
     lobes(V(top.x, top.y + 2.0 * s, top.z), 2.4 * s * (opt.blob || 1), 12);
-    TREES.push({ x, z, cx: top.x, y: top.y + 0.6 * s, cz: top.z, r: 3.6 * s * (opt.blob || 1), h: 3.4 * s });
+    TREES.push({ kind: 'oak', x, z, cx: top.x, y: top.y + 0.6 * s, cz: top.z, r: 3.6 * s * (opt.blob || 1), h: 3.4 * s });
   }
   function euc(x, z, s) {
     bucket(x, z);
@@ -144,7 +145,7 @@ export function buildWorld(scene, { small, fire = false }) {
     const pts = []; for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(V(o.x + lean.x * t * t + Math.sin(t * 5 + x) * 0.3 * s, o.y + H * 0.6 * t, o.z + lean.z * t * t + Math.cos(t * 4 + z) * 0.3 * s)); }
     limb(eucW, pts, 0.42 * s, 0.24 * s);
     const fork = pts[5];
-    TREES.push({ x, z, cx: fork.x, y: fork.y - H * 0.05, cz: fork.z, r: 2.6 * s, h: H * 0.45 });
+    TREES.push({ kind: 'euc', x, z, cx: fork.x, y: fork.y - H * 0.05, cz: fork.z, r: 2.6 * s, h: H * 0.45 });
     for (let b = 0; b < 3; b++) {
       const ang = b * 2.1 + T.rr(-0.4, 0.4), d = T.rr(1.4, 2.8) * s;
       const e = V(fork.x + Math.cos(ang) * d, fork.y + H * T.rr(0.3, 0.42), fork.z + Math.sin(ang) * d);
@@ -214,7 +215,7 @@ export function buildWorld(scene, { small, fire = false }) {
 // ---------- wildfire burn scar: vegetation and ground follow the recorded fire (arrival time per spot) ----------
 function makeBurn({ terr, canopies, sh, grass }) {
   const h = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
-  const CHAR = new THREE.Color(0.022, 0.019, 0.017), FIRE = new THREE.Color(1.0, 0.42, 0.1), ASH = new THREE.Color(0.2, 0.19, 0.18), SCORCH = new THREE.Color(0.42, 0.3, 0.14);
+  const COAL = new THREE.Color(0.9, 0.22, 0.04), CHAR = new THREE.Color(0.022, 0.019, 0.017), FIRE = new THREE.Color(1.0, 0.42, 0.1), ASH = new THREE.Color(0.2, 0.19, 0.18), SCORCH = new THREE.Color(0.42, 0.3, 0.14);
   const tc = new THREE.Color();
   const tCol = terr.geometry.attributes.color, tPos = terr.geometry.attributes.position, tc0 = tCol.array.slice();
   const tI = []; for (let i = 0; i < tPos.count; i++) { const x = tPos.getX(i), z = tPos.getZ(i); if (x > -101 && x < 61 && z > -61 && z < 61) tI.push(i); }
@@ -247,7 +248,17 @@ function makeBurn({ terr, canopies, sh, grass }) {
     for (let n = 0; n < tI.length; n++) {
       const [a, b] = A.t[n], age = m < 0 ? -1 : m - a, k = code(age, b); if (k === A.tS[n]) continue; A.tS[n] = k; ch = true;
       const i = tI[n]; tc.setRGB(tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]);
-      if (k > 0) { if (k < 10) tc.lerp(FIRE, 0.9 - 0.3 * (age / b)); else tc.lerp(CHAR, Math.min(1, 0.75 + (age - b) / 10)).lerp(ASH, Math.max(0, Math.min(0.35, (age - b - 25) / 60))); }
+      if (k > 0) {
+        if (k < 10) tc.lerp(FIRE, 0.9 - 0.3 * (age / b));
+        else {
+          // burnt ground by fuel: grass goes black then quickly to white-grey ash streaks; brush and litter
+          // leave beds of glowing coals that fade over several minutes
+          const fx = FUELFX[cellFuel(A.t[n][2])], sp = h(tPos.getX(i) * 3.1, tPos.getZ(i) * 2.7), a2 = age - b;
+          tc.lerp(CHAR, Math.min(1, 0.75 + a2 / 10));
+          if (fx.coals > 1 && a2 < fx.coals) tc.lerp(COAL, (1 - a2 / fx.coals) * (0.25 + 0.6 * sp));
+          tc.lerp(ASH, fx === FUELFX.grass ? Math.min(0.45, a2 / 8) * (0.4 + 0.6 * sp) : Math.max(0, Math.min(0.35, (a2 - 25) / 60)));
+        }
+      }
       tCol.setXYZ(i, tc.r, tc.g, tc.b);
     }
     if (ch) tCol.needsUpdate = true;

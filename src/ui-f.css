@@ -62,3 +62,5 @@
 .wwh3f .wwh3s-cta{display:inline-block;background:var(--o);color:#fff;font-weight:700;text-decoration:none;padding:12px 18px;border-radius:8px}
 .wwh3f .wwh3s-cta:hover{background:#ff6d0f}
 @media(max-width:600px){.wwh3f-segs{display:none}.wwh3f-track{height:28px}.wwh3f-range{bottom:8px}}
+
+.wwh3f.is-tour .wwh3f-ctl{display:none}.wwh3f.is-tour .wwh3f-side.r span{font-size:0}.wwh3f.is-tour .wwh3f-side.r span::after{content:'Typical home \2014 no upgrades';font-size:13px}

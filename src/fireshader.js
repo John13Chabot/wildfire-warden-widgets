@@ -33,14 +33,14 @@ void main(){
 }`;
 
 const FLAME_FRAG = /* glsl */`
-uniform float uT, uSeed, uI, uLean;
+uniform float uT, uSeed, uI, uLean, uFreq, uSpeed, uHot, uWX, uWY;
 varying vec2 vUv;
 ${NOISE}
 ${SOFTF}
 void main(){
   float y = vUv.y, x = (vUv.x - 0.5) * 2.0;
   float t = uT;
-  vec2 q = vec2(x * 3.2 + uSeed - t * uLean * 2.2, y * 3.0 - t * (2.6 - uLean * 0.8));
+  vec2 q = vec2(x * uFreq + uSeed - uWX, y * 3.0 - t * uSpeed + uWY);   // wind drift is integrated on the CPU: a gust speeds it up without jumping
   float w1 = fbm(q * 0.7 + vec2(uSeed * 0.3, -t * 0.9));
   float n  = fbm(q + vec2(w1 * 1.8 - 0.9, w1 * 1.2));          // domain warp -> licking tongues
   float sway = (w1 - 0.5) * 1.3 * y;
@@ -52,9 +52,10 @@ void main(){
   heat *= smoothstep(0.0, 0.1, y) * smoothstep(1.0, 0.75, y);
   heat *= uI;
   if (heat <= 0.01) discard;
-  vec3 c = mix(vec3(0.55, 0.06, 0.01), vec3(1.0, 0.3, 0.03), smoothstep(0.05, 0.4, heat));
-  c = mix(c, vec3(1.0, 0.62, 0.12), smoothstep(0.35, 0.75, heat));
-  c = mix(c, vec3(1.0, 0.9, 0.6), smoothstep(0.7, 1.2, heat));
+  float hc = heat * uHot;
+  vec3 c = mix(vec3(0.55, 0.06, 0.01), vec3(1.0, 0.3, 0.03), smoothstep(0.05, 0.4, hc));
+  c = mix(c, vec3(1.0, 0.62, 0.12), smoothstep(0.35, 0.75, hc));
+  c = mix(c, vec3(1.0, 0.9, 0.6), smoothstep(0.7, 1.2, hc));
   float a = smoothstep(0.0, 0.55, heat) * softK(0.9);
   gl_FragColor = vec4(c * 1.05 * a, a * 0.85);
 }`;
@@ -82,9 +83,9 @@ const GEO_C = new THREE.PlaneGeometry(1, 1);
 
 export function flameShaders(SMALL) {
   const oct = SMALL ? 3 : 4;
-  const time = { value: 0 };
+  const time = { value: 0 }, wx = { value: 0 }, wy = { value: 0 };
   const base = (frag, smoke) => new THREE.ShaderMaterial({
-    uniforms: { ...SOFT, uT: time, uSeed: { value: 0 }, uI: { value: 1 }, uLean: { value: 0 }, uCol: { value: new THREE.Color(0.35, 0.32, 0.3) } },
+    uniforms: { ...SOFT, uT: time, uWX: wx, uWY: wy, uFreq: { value: 3.2 }, uSpeed: { value: 2.6 }, uHot: { value: 1 }, uSeed: { value: 0 }, uI: { value: 1 }, uLean: { value: 0 }, uCol: { value: new THREE.Color(0.35, 0.32, 0.3) } },
     vertexShader: VERT, fragmentShader: frag, defines: { OCT: oct },
     transparent: true, depthWrite: false, depthTest: true,
     blending: THREE.CustomBlending,
@@ -93,8 +94,8 @@ export function flameShaders(SMALL) {
   });
   const flameProto = base(FLAME_FRAG, false), smokeProto = base(SMOKE_FRAG, true);
   return {
-    time,
-    flame(seed) { const m = flameProto.clone(); Object.assign(m.uniforms, SOFT); m.uniforms.uT = time; m.uniforms.uSeed.value = seed; const o = new THREE.Mesh(GEO, m); o.frustumCulled = false; o.renderOrder = 2; return o; },
-    smoke(seed) { const m = smokeProto.clone(); Object.assign(m.uniforms, SOFT); m.uniforms.uT = time; m.uniforms.uSeed.value = seed; const o = new THREE.Mesh(GEO_C, m); o.frustumCulled = false; o.renderOrder = 1; return o; },
+    time, wx, wy,
+    flame(seed) { const m = flameProto.clone(); Object.assign(m.uniforms, SOFT); m.uniforms.uT = time; m.uniforms.uWX = wx; m.uniforms.uWY = wy; m.uniforms.uSeed.value = seed; const o = new THREE.Mesh(GEO, m); o.frustumCulled = false; o.renderOrder = 2; return o; },
+    smoke(seed) { const m = smokeProto.clone(); Object.assign(m.uniforms, SOFT); m.uniforms.uT = time; m.uniforms.uWX = wx; m.uniforms.uWY = wy; m.uniforms.uSeed.value = seed; const o = new THREE.Mesh(GEO_C, m); o.frustumCulled = false; o.renderOrder = 1; return o; },
   };
 }

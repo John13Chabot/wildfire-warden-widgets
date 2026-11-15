@@ -7,9 +7,12 @@ const PRESETS = [
 ];
 const fmt = (m) => { const h = Math.floor(m / 60), mm = Math.floor(m % 60); return h + ':' + String(mm).padStart(2, '0'); };
 
+const CU = { lead: 1, after: 3, sec: 5 };   // close-up: sim minutes before/after the moment, real seconds it takes
 export function initFire(root) {
   const $ = (s) => root.querySelector(s);
-  const st = { up: new Set(EXT), wind: 'santaana', cmp: true, T: 0, play: false, ran: false, sims: [] };
+  const TOUR = root.dataset.tour != null;
+  const st = { up: new Set(TOUR ? [] : EXT), wind: 'santaana', cmp: !TOUR, T: 0, play: false, ran: false, sims: [], tour: TOUR ? { i: -1 } : null };
+  if (TOUR) { root.classList.add('is-tour'); const sub = root.querySelector('.wwh3f-sub'); if (sub) sub.textContent = 'A typical home with no upgrades in a Santa Ana wind. Watch the fire arrive, then see what happens at each of the seven weak points.'; }
   const api = { D: EXT.map((k) => ({ t: UPG[k].n })), ls: [], cur: null, pinned: null, set() {}, pin() {}, pickKey() {}, sel: () => null };
 
   let TL = timeline(st.wind);
@@ -27,6 +30,13 @@ export function initFire(root) {
   function recompute() {
     const sec = TL.toSec(st.T); TL = timeline(st.wind); segs(); st.TL = TL; st.T = TL.toMin(sec);
     st.sims = [simulate(new Set(), st.wind), simulate(st.up, st.wind)];
+    // close-ups: one slow-motion slot per weak point the fire reaches (on either house), in the order it reaches them
+    const sides = st.cmp ? st.sims : [st.sims[1]], hit = [];
+    for (const k of EXT) { let t = Infinity; for (const S of sides) t = Math.min(t, S.ign[k] ?? Infinity, S.stop[k] ?? Infinity); if (t < Infinity) hit.push([t, k]); }
+    hit.sort((a, b) => a[0] - b[0]);
+    st.slots = []; let end = -Infinity;
+    // each close-up stays centred on its own moment: clustered events share the time between them, each still gets CU.sec on screen
+    hit.forEach(([t, k], i) => { const nx = hit[i + 1]; const a = Math.max(t - CU.lead, end); let b = t + CU.after; if (nx) b = Math.min(b, Math.max(t + 0.5, (t + nx[0]) / 2)); b = Math.max(b, a + 0.4); st.slots.push({ k, t, a, b }); end = b; });
     ups.querySelectorAll('.wwh3f-up').forEach((b) => b.setAttribute('aria-pressed', st.up.has(b.dataset.k)));
     wind.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', b.dataset.w === st.wind));
     pre.querySelectorAll('button').forEach((b) => { const p = PRESETS[+b.dataset.i].up; b.classList.toggle('on', p.length === st.up.size && p.every((k) => st.up.has(k))); });
@@ -38,11 +48,46 @@ export function initFire(root) {
   wind.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; st.wind = b.dataset.w; recompute(); });
   cmpBox.addEventListener('change', () => { st.cmp = cmpBox.checked; recompute(); api.onLayout && api.onLayout(); });
 
+  // guided walkthrough (no upgrades): wide shot until the fire front arrives, then each weak point 1-7 in turn at the
+  // moment the fire reaches it (each close-up replays its own moment in slow motion), then wide again for the outcome
+  const TC = { lead: 1.5, after: 5, sec: 7 };
+  function tourTick(raw) {
+    const tr = st.tour, S = st.sims[1], d = Math.min(raw, 0.25);
+    if (st.play && !document.hidden) {
+      if (tr.i < 0) {
+        const s = Math.min(PLAY_END, TL.toSec(st.T) + d); st.T = TL.toMin(s);
+        if (st.T >= TL.tF + 1) { tr.i = 0; tr.end = st.T; startItem(); }
+      } else if (tr.i < EXT.length) {
+        st.T += d * (TC.lead + TC.after) / TC.sec;
+        if (st.T >= tr.b) { tr.end = Math.max(tr.end, st.T); tr.i++; if (tr.i < EXT.length) startItem(); else { st.T = tr.end; st.focusKey = null; } }
+      } else {
+        const s = Math.min(PLAY_END, TL.toSec(st.T) + d * 1.4); st.T = TL.toMin(s);
+        if (s >= PLAY_END) { st.T = TL.TMAX; setPlay(false); results(); }
+      }
+    }
+    range.value = Math.round(TL.toSec(st.T) / PLAY_END * 1000);
+    clock.textContent = fmt(st.T) + ' hr';
+    const ph = TL.PHASES.find(([a, b]) => st.T >= a && st.T < b);
+    phaseEl.textContent = st.focusKey ? (EXT.indexOf(st.focusKey) + 1) + ' · ' + UPG[st.focusKey].n : ph ? ph[2] : 'Hours later';
+    phaseEl.classList.toggle('on', true);
+    function startItem() {
+      const k = EXT[tr.i], t = S.ign[k] ?? TL.tF + 2;
+      st.focusKey = k; tr.b = t + TC.after; st.T = Math.max(0, t - TC.lead);
+    }
+  }
   const setPlay = (p) => { st.play = p; playBtn.innerHTML = p ? '&#10074;&#10074;' : '&#9654;'; playBtn.setAttribute('aria-label', p ? 'Pause' : 'Play'); };
-  const run = () => { if (st.T >= TL.TMAX) { st.T = 0; res.hidden = true; } if (st.T === 0 && api.onRun) api.onRun(); st.ran = true; root.classList.add('is-run'); setPlay(true); };
+  const run = () => { if (st.T >= TL.TMAX) { st.T = 0; res.hidden = true; if (st.tour) st.tour.i = -1; } if (st.T === 0 && api.onRun) api.onRun(); st.ran = true; root.classList.add('is-run'); setPlay(true); };
   $('.wwh3f-go').addEventListener('click', run);
   playBtn.addEventListener('click', () => (st.play ? setPlay(false) : run()));
-  range.addEventListener('input', () => { st.ran = true; root.classList.add('is-run'); setPlay(false); st.T = TL.toMin(+range.value / 1000 * PLAY_END); res.hidden = st.T < TL.TMAX; if (st.T >= TL.TMAX) results(); });
+  // "See how this works" links (href ending in #see-how-it-works) scroll here and start the walkthrough
+  if (TOUR) {
+    let ready = false; const pend = { v: false };
+    const go = () => { if (st.ran && st.play) return; if (!ready) { pend.v = true; return; } setTimeout(run, 700); };
+    api.ready = () => { ready = true; if (pend.v) { pend.v = false; setTimeout(run, 400); } };
+    document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[href$="#see-how-it-works"]'); if (a) go(); });
+    if (location.hash === '#see-how-it-works') go();
+  }
+  range.addEventListener('input', () => { if (st.tour) { st.tour.i = EXT.length; st.focusKey = null; } st.ran = true; root.classList.add('is-run'); setPlay(false); st.T = TL.toMin(+range.value / 1000 * PLAY_END); res.hidden = st.T < TL.TMAX; if (st.T >= TL.TMAX) results(); });
 
   function results() {
     const card = (S, title, up) => {
@@ -58,7 +103,7 @@ export function initFire(root) {
         '<p class="wwh3-label">What happened</p><ul>' + (list || '<li class="v"><b>&mdash;</b>Nothing ignited.</li>') + '</ul>' + fixHtml +
         (stops.length ? '' : '') + '<a class="wwh3s-cta" href="/free-assessment">Get My Free Home Assessment &rarr;</a></div>';
     };
-    res.innerHTML = (st.cmp ? card(st.sims[0], 'Typical home', new Set()) : '') + card(st.sims[1], st.cmp ? 'With your upgrades' : 'Your selection', st.up);
+    res.innerHTML = (st.cmp ? card(st.sims[0], 'Typical home', new Set()) : '') + card(st.sims[1], st.cmp ? 'With your upgrades' : st.tour ? 'Typical home — no upgrades' : 'Your selection', st.up);
     res.hidden = false;
   }
 
@@ -68,15 +113,22 @@ export function initFire(root) {
   api.fire = {
     st,
     tick(raw) {
+      if (st.tour && st.ran) return tourTick(raw);
+      const slot = st.ran ? st.slots.find((x) => st.T >= x.a && st.T < x.b) : null;
+      st.focusKey = slot ? slot.k : null;
       if (st.play && !document.hidden) {
-        const s = Math.min(PLAY_END, TL.toSec(st.T) + Math.min(raw, 0.25));
-        st.T = TL.toMin(s);
-        if (s >= PLAY_END) { st.T = TL.TMAX; setPlay(false); results(); }
+        if (slot) st.T = Math.min(slot.b, st.T + Math.min(raw, 0.25) * (slot.b - slot.a) / CU.sec);   // slow motion during a close-up
+        else {
+          // jump straight into the next close-up rather than overshooting it at normal speed
+          const s = Math.min(PLAY_END, TL.toSec(st.T) + Math.min(raw, 0.25)), next = st.slots.find((x) => x.a > st.T);
+          st.T = Math.min(TL.toMin(s), next ? next.a : Infinity);
+          if (s >= PLAY_END) { st.T = TL.TMAX; setPlay(false); results(); }
+        }
       }
       range.value = Math.round(TL.toSec(st.T) / PLAY_END * 1000);
       clock.textContent = st.ran ? fmt(st.T) + ' hr' : '';
       const ph = TL.PHASES.find(([a, b]) => st.T >= a && st.T < b);
-      phaseEl.textContent = ph ? ph[2] : 'Hours later';
+      phaseEl.textContent = slot ? 'Close-up: ' + UPG[slot.k].n : ph ? ph[2] : 'Hours later';
       phaseEl.classList.toggle('on', st.ran);
     },
     // project(sideIndex, [x,y,z]) -> [x,y] in stage px or null
@@ -86,7 +138,7 @@ export function initFire(root) {
         const sides = st.cmp ? [0, 1] : [1];
         for (const s of sides) {
           const S = st.sims[s];
-          const live = S.ev.filter((e) => st.T >= e.t && (e.k === 'struct' || st.T <= e.t + 14)).slice(root.clientWidth < 700 ? -1 : -3);
+          const live = st.focusKey ? S.ev.filter((e) => e.k === st.focusKey && st.T >= e.t) : S.ev.filter((e) => st.T >= e.t && (e.k === 'struct' || st.T <= e.t + 14)).slice(root.clientWidth < 700 ? -1 : -3);
           for (const e of live) {
             const big = e.k === 'struct';
             const p = project(s, e.k);

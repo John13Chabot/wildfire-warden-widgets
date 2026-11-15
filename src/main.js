@@ -9,7 +9,12 @@ import { initServices } from './ui-s.js';
 import cssF from './ui-f.css';
 import htmlF from './ui-f.html';
 import { initFire } from './ui-f.js';
-import { createFireFX, WIND } from './fire.js';
+import { createFireFX, WIND, simulate, EMIT } from './fire.js';
+import { rec } from './playback.js';
+import { createStoryUI } from './clipui.js';
+import { STORY, BEATS } from './story.js';
+import { createEmbers } from './embers.js';
+import { createDetails } from './detail.js';
 import { SOFT } from './fireshader.js';
 import { buildWorld, hgt } from './world.js';
 import { buildHouse } from './house.js';
@@ -19,22 +24,29 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.0.0';
+const VERSION = '4.8.1';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
-const root = rootH || rootS || rootF;
-const MODE = rootH ? 'h' : rootS ? 's' : 'f';
-if (root) {
+// a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
+const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
+const root = tourRoot || rootH || rootS || rootF;
+const MODE = tourRoot ? 'f' : rootH ? 'h' : rootS ? 's' : 'f';
+if (root && !root.dataset.version) {
   root.classList.add('wwh3');
   if (MODE !== 'h') root.classList.add('wwh3' + MODE);
   root.setAttribute('aria-label', MODE === 's' ? 'Interactive 3D map of where each service protects a home' : MODE === 'f' ? 'Interactive wildfire simulation comparing a home with and without hardening upgrades' : 'Interactive 3D home vulnerability map');
   root.innerHTML = '<style>' + css + (MODE === 's' ? cssS : MODE === 'f' ? cssF : '') + '</style>' + (MODE === 's' ? htmlS : MODE === 'f' ? htmlF : html);
   root.dataset.version = VERSION;
   const api = MODE === 's' ? initServices(root) : MODE === 'f' ? initFire(root) : initUI(root);
-  start(root, api).catch((err) => {
+  // a walkthrough lower on a page waits until it is near the viewport before building the 3D scene
+  const boot = () => start(root, api).catch((err) => {
     const m = root.querySelector('.wwh3-msg');
     if (m) m.textContent = '3D view unavailable on this device. Use the list below to explore.';
     console.warn('[wwh3]', err);
   });
+  if (tourRoot && rootS) {
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); boot(); } }, { rootMargin: '900px 0px' });
+    io.observe(root);
+  } else boot();
 }
 
 async function start(root, api) {
@@ -95,20 +107,37 @@ async function start(root, api) {
   const sketch = createSketch(r);
   const fx = [embers];
   // ---------- fire-test mode: shared FX + a second sketch pipeline for side-by-side ----------
-  const D = MODE === 'f' ? createDamage({ scene, M: HM, tiles, SMALL }) : null;
-  const F = MODE === 'f' ? createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES: WB.TREES, burn: WB.burn }) : null;
+  const FM = MODE === 'f';
+  let D = null, F = null, sketch2 = null, fxScene = null, clip = null, story = null, EMB = null;
   const SUN0 = sun.color.clone(), SUNI = sun.intensity, HS0 = hemi.color.clone(), HG0 = hemi.groundColor.clone(), HI = hemi.intensity;
   const SMOKY = new THREE.Color(1, 0.5, 0.24), GREYL = new THREE.Color(0.78, 0.76, 0.74), atmo = { tint: new THREE.Color(), tintK: 0, haze: new THREE.Color(), hazeK: 0, shim: SMALL ? 0 : 1, time: 0 };
   const TINT_B = new THREE.Color(1.0, 0.8, 0.64), TINT_G = new THREE.Color(0.82, 0.8, 0.78), HAZE_B = new THREE.Color(0.6, 0.5, 0.42), HAZE_G = new THREE.Color(0.66, 0.64, 0.61);
-  const sketch2 = F ? createSketch(r) : null;
-  const fxScene = F ? new THREE.Scene() : null;
-  if (fxScene) fxScene.userData.soft = (d, w, h, c) => { SOFT.tSD.value = d; SOFT.uSRes.value.set(w, h); SOFT.uSNear.value = c.near; SOFT.uSFar.value = c.far; };
-  if (F) {
-    scene.remove(embers); scene.remove(F.group); fxScene.add(embers); fxScene.add(F.group);
-    Object.assign(embers.material, { opacity: 0, size: SMALL ? 1.6 : 2.0, color: new THREE.Color(1.6, 0.85, 0.3), blending: THREE.NormalBlending, sizeAttenuation: true });
+  // fire effects: built up front on the stress-test page, on first use (an upgrade clip) elsewhere
+  function ensureFX() {
+    if (F) return;
+    D = createDamage({ scene, M: HM, tiles, SMALL });
+    F = createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES: WB.TREES, burn: WB.burn });
+    sketch2 = createSketch(r); fxScene = new THREE.Scene();
+    fxScene.userData.soft = (d, w, h, c) => { SOFT.tSD.value = d; SOFT.uSRes.value.set(w, h); SOFT.uSNear.value = c.near; SOFT.uSFar.value = c.far; };
+    scene.remove(F.group); fxScene.add(F.group);
+    if (FM) {
+      scene.remove(embers); fxScene.add(embers);
+      Object.assign(embers.material, { opacity: 0, size: SMALL ? 1.6 : 2.0, color: new THREE.Color(1.6, 0.85, 0.3), blending: THREE.NormalBlending, sizeAttenuation: true });
+    }
   }
+  // close-up detail models (homepage + services): tighter camera shots so the detail reads
+  const TOURM = FM && root.dataset.tour != null;
+  const DET = FM && !TOURM ? null : createDetails({ scene, reg, hgt, SMALL });
+  if (!FM || TOURM) {
+    const CU = { attic: { t: [1.5, 6.4, 6.1], az: 0.18, el: 0.12, d: 4.2 }, wood: { t: [2.6, 6.2, 6.6], az: 0.45, el: -0.05, d: 5.5 }, gutter: { t: [9.4, 3.22, 3.66], az: 0.42, el: 0.2, d: 4.0 },
+      eaves: { t: [-3, 5.72, 3.25], az: -0.25, el: -0.42, d: 3.8 }, deck: { t: [-6.4, 1.05, 2.2], az: -0.8, el: 0.6, d: 5.0 }, found: { t: [-3.3, 0.35, 3.1], az: -0.12, el: 0.18, d: 2.6 }, zone: { t: [-2.4, 0.3, 3.8], az: 0.12, el: 0.5, d: 4.2 } };
+    for (const h of H) if (CU[h.k]) h.v = CU[h.k];
+    H.find((h) => h.k === 'eaves').p = [-3, 5.68, 3.55];
+    if (TOURM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
+  }
+  if (FM) { ensureFX(); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
   const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
-  let camUser = false, camShot = null;
+  let camUser = false, camShot = null, fRun = false;
   // ---------- pins + camera rig ----------
   const pins = H.map((h, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
@@ -116,7 +145,7 @@ async function start(root, api) {
     if (MODE === 'h') { b.addEventListener('mouseenter', () => api.set(i)); b.addEventListener('mouseleave', () => api.set(api.pinned)); b.addEventListener('click', () => api.pin(i)); }
     else b.addEventListener('click', () => api.pickKey(H[i].k)); pinsEl.appendChild(b); h.v3 = new THREE.Vector3(...h.p); return b;
   });
-  if (F) DEFV = FV;
+  if (FM) DEFV = FV;
   const cur = { az: DEFV.az, el: DEFV.el, d: DEFV.d, t: new THREE.Vector3(...DEFV.t) }, goal = { az: cur.az, el: cur.el, d: cur.d, t: cur.t.clone() };
   let flying = false, user = false, active = [];
   const clampEl = (v) => Math.min(0.95, Math.max(0.02, v)), clampAz = (v) => Math.min(1.45, Math.max(-1.45, v));
@@ -134,7 +163,7 @@ async function start(root, api) {
   if (api.cur != null && api.cur >= 0) api.set(api.cur, true);
   const resetBtn = root.querySelector('.wwh3-reset'); if (resetBtn) resetBtn.addEventListener('click', () => { api.pin(null); user = false; });
   // ---------- auto-tour: steps 1 -> 7 until the visitor takes over ----------
-  const STEP = 7, tour = { on: MODE === 'h', i: -1, t: 0, hold: false }, tourBtn = root.querySelector('.wwh3-tour'), progEl = root.querySelector('.wwh3-prog i');
+  let STEP = 7; const tour = { on: MODE === 'h', i: -1, t: 0, hold: false }, tourBtn = root.querySelector('.wwh3-tour'), progEl = root.querySelector('.wwh3-prog i');
   const pinRaw = api.pin;
   const tourUI = () => { if (!tourBtn) return; tourBtn.textContent = tour.on ? 'Pause tour' : '\u25B6 Play tour'; tourBtn.setAttribute('aria-pressed', tour.on); root.classList.toggle('is-touring', tour.on); if (!tour.on) progEl.style.width = '0'; };
   const stopTour = () => { if (tour.on) { tour.on = false; tourUI(); } };
@@ -142,6 +171,7 @@ async function start(root, api) {
   api.pin = (i) => { stopTour(); pinRaw(i); };
   if (tourBtn) tourBtn.addEventListener('click', () => { if (tour.on) stopTour(); else { tour.on = true; tour.i = api.pinned == null ? -1 : api.pinned; tourUI(); tourNext(); } });
   const pnl = root.querySelector('.wwh3-panel'); if (pnl) ['wheel', 'pointerdown', 'touchstart'].forEach((ev) => pnl.addEventListener(ev, stopTour, { passive: true }));
+  api.startTour = () => { tour.on = true; tour.i = -1; tour.t = 0; tourUI(); tourNext(); };
   tourUI();
   const cv = r.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); ray.firstHitOnly = true; let drag = null, hoverLock = false;
   const pick = (e) => { ray.far = Infinity; const b = cv.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam); const h = ray.intersectObjects(solids, false)[0]; return h && h.object.userData.k ? H.findIndex((x) => x.k === h.object.userData.k) : -1; };
@@ -168,9 +198,11 @@ async function start(root, api) {
   }
   const perf = { n: 0, acc: 0, settleAt: 0, drops: 0 };
   const px = new Uint8Array(4);
-  const split = () => (F && api.fire.st.cmp ? (W / Hh < 0.95 ? 'v' : 'h') : null);
+  const split = () => ((FM && api.fire.st.cmp) ? (W / Hh < 0.95 ? 'v' : 'h') : null);
   const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
-  const draw = !F ? () => sketch.render(scene, cam, fx) : () => {
+  const draw = () => {
+    if (story && story.S) { F.apply(story.S, story.T); sketch.render(scene, cam, fx, fxScene); return; }
+    if (!FM) { sketch.render(scene, cam, fx); return; }
     const st = api.fire.st, hv = halves();
     if (!hv[0]) { F.apply(st.sims[1], st.T); sketch.render(scene, cam, fx, fxScene); return; }
     r.setScissorTest(true);
@@ -182,12 +214,12 @@ async function start(root, api) {
   let W = 0, Hh = 0;
   function size() {
     const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false);
-    const sp = F ? split() : null, w = sp === 'h' ? W / 2 : W, h = sp === 'v' ? Hh / 2 : Hh;
+    const sp = split(), w = sp === 'h' ? W / 2 : W, h = sp === 'v' ? Hh / 2 : Hh;
     cam.aspect = w / h; cam.updateProjectionMatrix();
     sketch.setSize(w, h, r.getPixelRatio()); if (sketch2) sketch2.setSize(w, h, r.getPixelRatio());
-    if (F) { root.classList.toggle('is-vert', sp === 'v'); }
+    if (FM) { root.classList.toggle('is-vert', sp === 'v'); }
   }
-  if (F) { api.onLayout = () => size(); api.onRun = () => { camUser = false; camShot = null; }; }
+  if (FM) { api.onLayout = () => size(); api.onRun = () => { camUser = false; camShot = null; }; }
   new ResizeObserver(size).observe(stage); size(); setTier(tier);
   // pick a starting quality tier from a quick synchronous benchmark (skipped on small screens)
   if (tier > 0) {
@@ -197,20 +229,100 @@ async function start(root, api) {
       setTier(pick); perf.start = pick;
     } catch (e) { setTier(1); }
   }
+  // ---------- upgrade stories: the selected weak point, without vs with its upgrade, played automatically ----------
+  // Fire behaviour comes from the Santa Ana recording, but only the featured spot (and the fuel right next to it) burns.
+  const SW = 'santaana', EMPTY = { ign: {}, stop: {}, ember: {}, ev: [] };
+  const sUI = createStoryUI(stage);
+  // queue of weak points to tell (services cards can cover two)
+  function storyFor(i) {
+    const sk = api.storyKeys ? api.storyKeys(i) : (i == null || i < 0 ? null : { keys: [H[i].k], up: new Set([H[i].k]) });
+    if (!sk) { storyEnd(); return; }
+    storyStart(sk.keys, sk.up, 0);
+  }
+  function storyStart(keys, up, n) {
+    const k = keys[n], st = STORY[k], h = H.find((x) => x.k === k);
+    if (!st || !h) { storyEnd(); return; }
+    ensureFX();
+    const S0 = simulate(new Set(), SW), S1 = simulate(up, SW);
+    const tk = Math.min(S0.ign[k] ?? Infinity, S1.stop[k] ?? Infinity);
+    if (!isFinite(tk)) { storyEnd(); return; }
+    const C = rec(SW), ember = C.causes[k] === 'ember';
+    const one = (S, kind) => { const o = { ign: {}, stop: {}, ember: {}, ev: [] }; if (kind === 'ign') o.ign[k] = tk; else o.stop[k] = tk; if (ember) o.ember[k] = tk - 0.5; return o; };
+    if (story) F.apply(EMPTY, 0);
+    if (!EMB) { EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.group.visible = false; }
+    story = { keys, up, n, k, st, p: h.p, tk, ember, el: 0, clock: 0, beat: -1, T: tk - 1, S: null, Sw: one(S0, 'ign'), Sg: one(S1, 'stop'), near: { x: h.p[0], z: h.p[2], r: C.causes[k] === 'heat' ? 14 : 0.1 } };
+    root.classList.add('is-story'); sUI.show();
+    STEP = BEATS[4] * keys.length;
+    go(h.v);
+  }
+  function storyEnd() {
+    if (!story) return;
+    story = null; STEP = 7;
+    if (F) { F.apply(EMPTY, 0); F.env(0, 1, SW, false, cam); F.reset(); }
+    if (EMB) EMB.group.visible = false;
+    fire.intensity = 0.25; sUI.hide(); root.classList.remove('is-story');
+  }
+  function storyFrame(raw, dt) {
+    const c = story; c.clock += dt; c.el += Math.min(raw, 0.25);
+    // Santa Ana: sustained ~35 mph (15.6 m/s) with gusts to ~60 mph (27 m/s), never reversing
+    const g1 = Math.max(0, Math.sin(c.clock * 0.42) * Math.sin(c.clock * 1.07 + 1.3)), g2 = Math.max(0, Math.sin(c.clock * 0.23 + 2));
+    c.U = 15.6 + 11 * Math.pow(g1, 1.5) + 3 * g2 - 2.5 * (1 - g2); c.W = (c.W || 0) + c.U * Math.min(dt, 0.05);
+    const e = c.el, beat = e < BEATS[1] ? 0 : e < BEATS[2] ? 1 : 2;
+    if (beat !== c.beat) {
+      c.beat = beat; c.S = beat === 1 ? c.Sw : beat === 2 ? c.Sg : null; if (beat === 2 || beat === 0) F.apply(EMPTY, 0);
+      // the same ember storm, from the same starting state, in both steps
+      if (beat > 0) { c.clock = 0; c.W = 0; EMB.reset(1 + c.k.length * 977, 15.6, 5, c.p); }
+      EMB.group.visible = beat > 0;
+    }
+    // each beat replays the same recorded moment: from just before the embers/heat arrive to a few minutes after
+    const bt = beat === 0 ? 0 : (e - BEATS[beat]) / (BEATS[beat + 1] - BEATS[beat]);
+    c.T = c.tk - 1 + 6 * Math.min(1, bt);
+    if (beat > 0) EMB.step(dt, c.U, c.clock + 5);
+    F.tick(dt);
+    F.env(beat === 0 ? 0 : c.T, WIND[SW].f, SW, beat > 0, cam, c.near);
+    fire.intensity = 0.25 + (beat === 1 ? 0.9 * Math.min(1, bt * 2) : 0);
+    sUI.set(c.st, beat, [Math.min(1, e / BEATS[1]), Math.max(0, Math.min(1, (e - BEATS[1]) / (BEATS[2] - BEATS[1]))), Math.max(0, Math.min(1, (e - BEATS[2]) / (BEATS[3] - BEATS[2])))]);
+    if (e >= BEATS[4]) {
+      if (c.n + 1 < c.keys.length) storyStart(c.keys, c.up, c.n + 1);
+      else if (!tour.on) { c.el = BEATS[3]; c.done = true; }   // not touring: hold on the protected result
+    }
+  }
+  api.story = { stop: storyEnd, get on() { return !!story; }, seek(sec) { if (story) story.el = sec; } };
   const off = new THREE.Vector3(), tmp = new THREE.Vector3(), clock = new THREE.Clock(); let t = 0, first = true;
   function frame() {
     requestAnimationFrame(frame); if (!vis) return;
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
     if (tour.on && !tour.hold && !document.hidden) { tour.t += Math.min(raw, 0.5); if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); if (progEl) progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
     let wf = 1, gst = 1;
-    if (F) {
+    if (DET) {
+      DET.update(cam);
+      if (TOURM && api.fire && api.fire.st.ran) {
+        const st = api.fire.st, S = st.sims[1], T0 = st.T, sa = S.ign.struct != null ? T0 - S.ign.struct : -1;
+        for (const k of ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']) {
+          const a = S.ign[k] != null ? T0 - S.ign[k] : -1;
+          const ch = Math.max(a < 0 ? 0 : Math.min(1, a / (k === 'gutter' || k === 'zone' ? 4 : 12)), sa < 0 ? 0 : Math.min(1, sa / 40));
+          const glow = a < 0 ? 0 : a < 1 ? a : Math.max(0.15, 1 - (a - 1) / 30);
+          DET.burn(k, ch, Math.max(glow, sa > 0 ? 0.6 : 0), t);
+        }
+      }
+    }
+    if (story) storyFrame(raw, dt);
+    if (!FM) embers.visible = !story;   // the story's own ember storm replaces the ambient drift
+    if (FM) {
       api.fire.tick(raw); F.tick(dt);
       wf = WIND[api.fire.st.wind].f;
       const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf, api.fire.st.wind, api.fire.st.ran, cam); gst = envS.gust;
       // camera follows the recording: wide on the hillside while the fire approaches, then in on the houses
-      if (api.fire.st.ran && !camUser && api.fire.st.TL) { const v = api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } }
+      if (api.fire.st.ran && !camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey, fh = fk && H.find((x) => x.k === fk); const v = fh ? fh.v : api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } }
       if (!api.fire.st.ran) camShot = null;
-      embers.material.opacity = api.fire.st.ran ? Math.min(1, envS.emberLevel) : 0.15;
+      // firebrand physics: wind speed from the setting (calm 8, windy 20, Santa Ana 40 mph at 20 ft) with gusts;
+      // brand supply follows the recorded ember exposure
+      const st0 = api.fire.st, U20 = { calm: 3.6, windy: 8.9, santaana: 17.9 }[st0.wind] * gst;   // same gust signal as the flames
+      if (st0.ran && !fRun) { fRun = true; EMB.view(cur.t.x, cur.t.z, cur.d); EMB.reset(7, U20, 3); }
+      if (!st0.ran) fRun = false;
+      EMB.level(st0.ran ? Math.min(1, envS.emberLevel / Math.max(0.6, wf)) * (st0.play ? 1 : 1) : 0);
+      EMB.view(cur.t.x, cur.t.z, cur.d);
+      EMB.step(st0.play ? dt : 0, U20, t);
       fire.intensity = 0.25 + (api.fire.st.ran ? envS.glow : 0);
       // smoke-filled sky: sun dims and reddens, ambient goes brown, then clears to grey haze
       const k = api.fire.st.ran ? envS.smoke : 0, g = api.fire.st.ran ? envS.grey : 0;
@@ -224,10 +336,10 @@ async function start(root, api) {
     const d = cur.d * (cam.aspect < 1.4 ? 1.15 + (1.4 - Math.max(0.7, cam.aspect)) * 0.55 : 1);
     off.set(Math.sin(cur.az) * Math.cos(cur.el), Math.sin(cur.el), Math.cos(cur.az) * Math.cos(cur.el)).multiplyScalar(d);
     cam.position.copy(cur.t).add(off); const gy = hgt(cam.position.x, cam.position.z) + 0.6; if (cam.position.y < gy) cam.position.y = gy; cam.lookAt(cur.t);
-    if (active.length) { const s = 0.7 + 0.3 * Math.sin(t * 4); active.forEach((k) => reg[k] && reg[k].forEach((m) => { m.material.emissive.set(0xe85d04); m.material.emissiveIntensity = s; })); }
+    if (active.length && !(story && story.beat > 0)) { const s = 0.7 + 0.3 * Math.sin(t * 4); active.forEach((k) => reg[k] && reg[k].forEach((m) => { m.material.emissive.set(0xe85d04); m.material.emissiveIntensity = s; })); }
     if (!RM) {
       const p = eg.attributes.position.array;
-      const ws = F ? wf * wf * gst : 1, tb = F ? 0.6 + 0.5 * wf : 1, lift = F ? 0.004 + 0.006 / wf : 0.006;
+      const ws = FM ? wf * wf * gst : 1, tb = FM ? 0.6 + 0.5 * wf : 1, lift = FM ? 0.004 + 0.006 / wf : 0.006;
       for (let i = 0; i < N; i++) { p[i * 3] += ev[i] * dt * 60 * ws; p[i * 3 + 1] += Math.sin(t * 2 + i) * 0.008 * tb + lift; p[i * 3 + 2] += Math.cos(t * (0.8 + wf) + i) * 0.006 * tb; if (p[i * 3] > 28 || p[i * 3 + 1] > 24) { p[i * 3] = -45; p[i * 3 + 1] = T.rr(MODE === 'f' ? 0 : -3, 14); } }
       eg.attributes.position.needsUpdate = true;
     }
@@ -235,9 +347,9 @@ async function start(root, api) {
     // measure & step quality down if frames are slow (after warm-up)
     perf.n++;
     if (perf.n > 30 && tier > 0 && raw < 0.2) { perf.acc += raw; if (perf.n - 30 >= 40) { const avg = perf.acc / 40; perf.last = avg; if (avg > 1 / 32) { setTier(tier - 1); perf.drops++; } perf.n = 0; perf.acc = 0; } }
-    if (first) { first = false; msg && msg.remove(); }
+    if (first) { first = false; msg && msg.remove(); if (api.ready) setTimeout(api.ready, 0); }
     if ((perf.n % 30) === 1 && (Math.abs(stage.clientWidth - W) > 1 || Math.abs(stage.clientHeight - Hh) > 1)) size();
-    if (F) {
+    if (FM) {
       const hv = halves();
       api.fire.labels((s, k) => {
         const rc = hv[s]; if (!rc) return null; const p = F.EMIT[k] && F.EMIT[k][0]; if (!p) return null;

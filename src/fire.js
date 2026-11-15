@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as T from './tex.js';
 import { flameShaders } from './fireshader.js';
+import { FUELFX, HOUSE_FUEL, styleFlame } from './fuelfx.js';
 import { rec, recordedOutcome, createEnvFX, timeline } from './playback.js';
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,7 @@ export function simulate(up, wind) { return recordedOutcome(up, wind, EXT); }
 // Visual effects (one shared scene, per-side state applied before each render)
 // ---------------------------------------------------------------------------
 // emitter anchor points per node (world space)
-const EMIT = {
+export const EMIT = {
   zone: [[-2.05, 0.6, 3.95], [-1.35, 0.5, 4.1], [-2.7, 0.4, 4.2], [0.1, 0.4, 4.3], [4.4, 0.5, 4.0]],
   gutter: [[6.5, 3.3, 3.85], [8.2, 3.3, 3.82], [10, 3.3, 3.8], [11.5, 3.3, 3.8]],
   attic: [[1.5, 6.5, 6.2]],
@@ -85,7 +86,7 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
     const set = new Set(); (reg[k] || []).forEach((m) => set.add(m.material));
     mats[k] = [...set].map((m) => { m.userData.c0 = m.color.clone(); return m; });
   }
-  let t = 0, wf = 1, gust = 1;
+  let t = 0, wf = 1, gust = 1, CAM = null; const CV = new THREE.Vector3();
   const leanOf = () => Math.min(0.8, (0.12 + Math.max(0, wf - 0.6) * 0.75) * gust);   // calm ~0.12, windy ~0.5, Santa Ana ~0.95
   const lvl = (S, k, m) => (S.ign[k] == null || m < S.ign[k] ? 0 : Math.min(1, (m - S.ign[k]) / 6));
   // intensity curve: ramps up, roars, then settles to a low smoulder after ~30 sim-min (struct keeps going)
@@ -94,7 +95,14 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
 
   return {
     group: G,
-    tick(dt) { t += dt; SH.time.value = RM ? 3.7 : t; gust = RM ? 1 : 1 + 0.28 * Math.sin(t * 0.8) * Math.sin(t * 2.1 + 1) + 0.08 * Math.sin(t * 5.3); },
+    // one gust signal drives flames, smoke and embers: smooth build over a few seconds, peak ~45% over the mean, then ease off
+    tick(dt) {
+      t += dt; SH.time.value = RM ? 3.7 : t;
+      const s1 = Math.sin(t * 0.31) * Math.sin(t * 0.83 + 1), s2 = Math.sin(t * 0.19 + 2);
+      gust = RM ? 1 : 0.9 + 0.5 * Math.pow(Math.max(0, s1), 1.4) + 0.08 * s2;
+      const ln = leanOf(); SH.wx.value += dt * ln * 2.4; SH.wy.value += dt * ln * 0.9;
+    },
+    get gust() { return gust; },
     // apply one side's state to the shared scene
     apply(S, m) {
       const lean = leanOf(), ln = Math.min(1, lean);
@@ -112,6 +120,7 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       for (const k in em) {
         const b = lvl(S, k, m), age = S.ign[k] == null ? 0 : m - S.ign[k];
         const ember = S.ember && S.ember[k] != null && m >= S.ember[k] - 4 && m < S.ember[k] + 6;
+        const fx = FUELFX[HOUSE_FUEL[k] || 'wood'];
         em[k].forEach((e, j) => {
           const on = b > 0 && j < Math.ceil(em[k].length * Math.min(1, 0.4 + age / 20));
           const I = b * roar(k, age), sc = SCALE[k] * (0.55 + 0.45 * I);
@@ -120,13 +129,14 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
             if (!on) return;
             const [cs, dx, dz] = CARD[c];
             f.position.set(e.p[0] + dx * sc * 0.4, e.p[1] - 0.05, e.p[2] + dz * sc * 0.4);
-            const kb = k === 'struct' ? 1 : 1.25; f.scale.set(sc * 0.95 * cs * kb * (1 + 0.3 * ln), sc * 1.6 * cs * kb * (1 - 0.18 * ln), 1);
-            f.material.uniforms.uI.value = Math.min(1.15, 0.55 + 0.6 * I);
-            f.material.uniforms.uLean.value = lean;
+            const gb = 0.92 + 0.16 * (gust - 0.9); const nf = CAM ? Math.min(1, Math.max(0.25, CV.copy(f.position).distanceTo(CAM.position) / 9)) : 1;   // don't let a flame fill the lens in close-ups
+            const kb = k === 'struct' ? 1 : 1.25; f.scale.set(sc * 0.95 * cs * kb * fx.w * (1 + 0.3 * ln) * nf, sc * 1.6 * cs * kb * fx.h * (1 - 0.18 * ln) * nf, 1);
+            f.material.uniforms.uI.value = gb * Math.min(1.15, 0.55 + 0.6 * I) * (fx.h < 0.5 ? 0.75 + 0.25 * Math.sin(t * 7 + c * 2.1 + e.ph) : 1);
+            f.material.uniforms.uLean.value = lean; styleFlame(f, fx);
           });
           if (on) act.push([e.p[0], e.p[1], e.p[2], sc, I]);
-          e.s.visible = on && age > 3;
-          if (e.s.visible) { const u = RM ? 0.5 : (t * 0.22 + e.ph * 0.13) % 1; const ss = SCALE[k] * (homeOn ? 1.6 : 1.2) * (1.2 + u * 2.4); e.s.position.set(e.p[0] + u * (0.6 + 4.5 * lean) * SCALE[k], e.p[1] + SCALE[k] * 1.1 + u * SCALE[k] * 2.4 * (1.1 - 0.45 * ln), e.p[2]); e.s.scale.set(ss, ss, 1); e.s.material.uniforms.uI.value = (homeOn ? 0.85 : 0.55) * Math.sin(Math.PI * Math.min(1, u * 1.4 + 0.08)); e.s.material.uniforms.uCol.value.copy(smokeCol); }
+          e.s.visible = (on && age > 1.5) || (b > 0 && j < 2 && age < fx.smolder + 60);
+          if (e.s.visible) { const u = RM ? 0.5 : (t * 0.22 + e.ph * 0.13) % 1; const ss = SCALE[k] * (homeOn ? 1.6 : 1.2) * (1.2 + u * 2.4); e.s.position.set(e.p[0] + u * (0.6 + 4.5 * lean) * SCALE[k], e.p[1] + SCALE[k] * 1.1 + u * SCALE[k] * 2.4 * (1.1 - 0.45 * ln), e.p[2]); e.s.scale.set(ss, ss, 1); e.s.material.uniforms.uI.value = (homeOn ? 0.85 : fx.sd * 0.8) * Math.sin(Math.PI * Math.min(1, u * 1.4 + 0.08)); if (homeOn) e.s.material.uniforms.uCol.value.copy(smokeCol); else e.s.material.uniforms.uCol.value.setRGB(fx.smoke[0], fx.smoke[1], fx.smoke[2]); }
           e.g.visible = (ember && j === 0) || on;
           if (e.g.visible) { const p = 0.6 + 0.4 * Math.sin(t * 12 + e.ph); const gs = on ? sc * 1.7 * (0.9 + 0.1 * Math.sin(t * 14 + e.ph)) : 2.2 * p; e.g.scale.set(gs, gs, 1); e.g.position.set(e.p[0], e.p[1] + (on ? sc * 0.35 : 0), e.p[2]); }
         });
@@ -146,13 +156,14 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       if (D) D.apply(S, m, t, act, RM);
     },
     // hillside fire front + ember density (same for both sides)
-    env(m, w, wind, ran, cam) {
+    env(m, w, wind, ran, cam, near) {
+      CAM = cam;
       wf = w;
       const C = rec(wind), TL = timeline(wind);
-      ENV.update(C, m, t, leanOf(), ran, cam);
+      ENV.update(C, m, t, leanOf(), ran, cam, near);
       if (burn) burn.update(C, ran ? m : -1);
       for (const tr of tf) {
-        const a = ran ? C.at(tr.gx, tr.gz) : null, age = a ? m - a.t : -1, on = !!a && (a.f & 1) && age > 0 && age < 9;
+        const a = ran && !near ? C.at(tr.gx, tr.gz) : null, age = a ? m - a.t : -1, on = !!a && (a.f & 1) && age > 0 && age < 9;
         const b = on ? Math.min(1, age / 1.2) * Math.max(0, Math.min(1, (9 - age) / 4)) : 0;
         tr.cards.forEach((f, c) => {
           f.visible = on && b > 0.02;
@@ -160,13 +171,13 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
           const ln = leanOf(), hh = (tr.h * 0.6 + tr.r) * (0.6 + 0.5 * b) * (c ? 0.8 : 1) * (1 - 0.3 * ln);
           f.position.set(tr.x + (c - 1) * tr.r * 0.4, tr.y - tr.h * 0.3, tr.z + (c - 1) * 0.5);
           f.scale.set(Math.max(tr.r * 2.0, hh * 0.85) * (1 + 0.3 * ln), hh, 1);
-          f.material.uniforms.uI.value = 0.6 + 0.5 * b; f.material.uniforms.uLean.value = leanOf() * 0.5;
+          f.material.uniforms.uI.value = 0.6 + 0.5 * b; f.material.uniforms.uLean.value = leanOf() * 0.5; styleFlame(f, FUELFX[tr.kind || 'oak']);
         });
         tr.s.visible = on || (!!a && age > 0.5 && age < 26 && (a.f & 1));
-        if (tr.s.visible) { const u = RM ? 0.5 : (t * 0.17 + tr.j) % 1; const ss = tr.r * (2 + u * 3); tr.s.position.set(tr.x + u * (2 + 12 * leanOf()), tr.y + tr.h * 0.6 + u * 9, tr.z); tr.s.scale.set(ss, ss, 1); tr.s.material.uniforms.uI.value = 0.6 * Math.sin(Math.PI * Math.min(1, u * 1.3 + 0.1)) * Math.max(0.2, 1 - age / 26); }
+        if (tr.s.visible) { const tfx = FUELFX[tr.kind || 'oak']; tr.s.material.uniforms.uCol.value.setRGB(tfx.smoke[0], tfx.smoke[1], tfx.smoke[2]); const u = RM ? 0.5 : (t * 0.17 + tr.j) % 1; const ss = tr.r * (2 + u * 3); tr.s.position.set(tr.x + u * (2 + 12 * leanOf()), tr.y + tr.h * 0.6 + u * 9, tr.z); tr.s.scale.set(ss, ss, 1); tr.s.material.uniforms.uI.value = 0.6 * Math.sin(Math.PI * Math.min(1, u * 1.3 + 0.1)) * Math.max(0.2, 1 - age / 26); }
       }
       // ash: starts with the front, lingers after
-      const ashK = !ran || m < TL.tF - 2 ? 0 : Math.min(1, (m - TL.tF + 2) / 20) * Math.max(0.35, 1 - Math.max(0, m - TL.tP - 60) / 120);
+      const ashK = !ran || near || m < TL.tF - 2 ? 0 : Math.min(1, (m - TL.tF + 2) / 20) * Math.max(0.35, 1 - Math.max(0, m - TL.tP - 60) / 120);
       ash.material.opacity = ashK * 0.85;
       if (ashK > 0) for (let i = 0; i < AN; i++) {
         const a = aS[i], y = ((a[1] - t * a[3] * 0.9) % 26 + 26) % 26;

@@ -100,7 +100,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
   const quad = new FullScreenQuad(mat);
 
   return {
-    atmo(o) { const u = mat.uniforms; u.uTint.value.copy(o.tint); u.uTintK.value = o.tintK; u.uHaze.value.copy(o.haze); u.uHazeK.value = o.hazeK; u.uShim.value = o.shim; u.uDark.value = 1; if (o.fade) u.uFade.value.set(o.fade[0], o.fade[1]); u.uTime.value = o.time; },
+    atmo(o) { const u = mat.uniforms; u.uTint.value.copy(o.tint); u.uTintK.value = o.tintK; u.uHaze.value.copy(o.haze); u.uHazeK.value = o.hazeK; u.uShim.value = o.shim; u.uDark.value = o.dark ?? 1; if (o.fade) u.uFade.value.set(o.fade[0], o.fade[1]); u.uTime.value = o.time; },
     setSize(w, h, pr) {
       const W = Math.max(1, Math.floor(w * pr)), H = Math.max(1, Math.floor(h * pr));
       if (rtColor.width === W && rtColor.height === H) { mat.uniforms.dpr.value = pr; return; }

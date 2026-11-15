@@ -103,6 +103,9 @@ export function initServices(root) {
   }, { rootMargin: '-35% 0px -55% 0px' });
   arts.forEach((a) => io.observe(a));
 
+  // each card tells the story of the weak point(s) it protects when it becomes active (engine plays it automatically)
+  const STORYK = { vents: ['attic', 'found'], eaves: ['eaves'], gutters: ['gutter'], fortify: ['zone'], 'firefree-88': ['wood'], deckguard: ['deck'] };
+  api._storyKeys = (i) => (i == null || i < 0 ? null : { keys: STORYK[SV[i].id], up: new Set(SV[i].keys) });
   api.set(null);
   // deep link: /services#eaves etc.
   const h = (location.hash || '').slice(1);
