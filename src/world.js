@@ -136,7 +136,7 @@ export function buildWorld(scene, { small, fire = false }) {
     } };
     for (const e of ends) lobes(V(e.x, e.y + 0.5 * s, e.z), 1.7 * s * (opt.blob || 1), 10);
     lobes(V(top.x, top.y + 2.0 * s, top.z), 2.4 * s * (opt.blob || 1), 12);
-    if (x < -8) TREES.push({ x: top.x, y: top.y + 0.6 * s, z: top.z, r: 3.6 * s * (opt.blob || 1), h: 3.4 * s });
+    TREES.push({ x, z, cx: top.x, y: top.y + 0.6 * s, cz: top.z, r: 3.6 * s * (opt.blob || 1), h: 3.4 * s });
   }
   function euc(x, z, s) {
     bucket(x, z);
@@ -144,7 +144,7 @@ export function buildWorld(scene, { small, fire = false }) {
     const pts = []; for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(V(o.x + lean.x * t * t + Math.sin(t * 5 + x) * 0.3 * s, o.y + H * 0.6 * t, o.z + lean.z * t * t + Math.cos(t * 4 + z) * 0.3 * s)); }
     limb(eucW, pts, 0.42 * s, 0.24 * s);
     const fork = pts[5];
-    if (x < -8) TREES.push({ x: fork.x, y: fork.y - H * 0.05, z: fork.z, r: 2.6 * s, h: H * 0.45 });
+    TREES.push({ x, z, cx: fork.x, y: fork.y - H * 0.05, cz: fork.z, r: 2.6 * s, h: H * 0.45 });
     for (let b = 0; b < 3; b++) {
       const ang = b * 2.1 + T.rr(-0.4, 0.4), d = T.rr(1.4, 2.8) * s;
       const e = V(fork.x + Math.cos(ang) * d, fork.y + H * T.rr(0.3, 0.42), fork.z + Math.sin(ang) * d);
@@ -211,73 +211,75 @@ export function buildWorld(scene, { small, fire = false }) {
   return { TREES, burn: fire ? makeBurn({ terr, canopies, sh, grass }) : null };
 }
 
-// ---------- wildfire burn scar: hillside vegetation and ground char as the front passes ----------
+// ---------- wildfire burn scar: vegetation and ground follow the recorded fire (arrival time per spot) ----------
 function makeBurn({ terr, canopies, sh, grass }) {
-  const X0 = -8;                                         // only the hillside west of here burns
   const h = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
-  const CHAR = new THREE.Color(0.075, 0.064, 0.055), FIRE = new THREE.Color(1.0, 0.42, 0.1), ASH = new THREE.Color(0.32, 0.3, 0.28);
+  const CHAR = new THREE.Color(0.022, 0.019, 0.017), FIRE = new THREE.Color(1.0, 0.42, 0.1), ASH = new THREE.Color(0.2, 0.19, 0.18), SCORCH = new THREE.Color(0.42, 0.3, 0.14);
   const tc = new THREE.Color();
-  // terrain vertices
-  const tCol = terr.geometry.attributes.color, tPos = terr.geometry.attributes.position, tc0 = tCol.array.slice(), tI = [];
-  for (let i = 0; i < tPos.count; i++) if (tPos.getX(i) < X0 + 2) tI.push(i);
-  const tJ = tI.map((i) => (h(tPos.getX(i), tPos.getZ(i)) - 0.5) * 3 + (T.fbm(tPos.getX(i) * 0.08, tPos.getZ(i) * 0.08, 3) - 0.5) * 8);
-  // canopy vertices grouped by lobe centre
-  const cv = canopies.map((m) => {
-    const g = m.geometry, P = g.attributes.position, C = g.attributes.color, Q = g.attributes.ctr, I = [];
-    for (let i = 0; i < P.count; i++) if (Q.getX(i) < X0) I.push(i);
-    return { g, P, C, Q, I, p0: P.array.slice(), c0: C.array.slice(), j: I.map((i) => h(Q.getX(i), Q.getZ(i)) * 4) };
+  const tCol = terr.geometry.attributes.color, tPos = terr.geometry.attributes.position, tc0 = tCol.array.slice();
+  const tI = []; for (let i = 0; i < tPos.count; i++) { const x = tPos.getX(i), z = tPos.getZ(i); if (x > -101 && x < 61 && z > -61 && z < 61) tI.push(i); }
+  const lobes = canopies.map((m) => {
+    const g = m.geometry, P = g.attributes.position, C = g.attributes.color, Q = g.attributes.ctr, L = [];
+    for (let i = 0; i < P.count;) { const x = Q.getX(i), y = Q.getY(i), z = Q.getZ(i); let j = i; while (j < P.count && Q.getX(j) === x && Q.getZ(j) === z && Q.getY(j) === y) j++; L.push({ s: i, n: j - i, x, y, z }); i = j; }
+    return { g, P, C, L, p0: P.array.slice(), c0: C.array.slice() };
   });
-  // shrubs + grass instances
-  const inst = (im) => {
-    const out = [], m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), c = new THREE.Color();
-    for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, m); m.decompose(p, q, s); if (p.x < X0) { im.getColorAt(i, c); out.push({ i, p: p.clone(), q: q.clone(), s: s.clone(), c: c.clone(), j: h(p.x, p.z) * 3 }); } }
-    return out;
-  };
+  const inst = (im) => { const out = [], m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), c = new THREE.Color();
+    for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, m); m.decompose(p, q, s); im.getColorAt(i, c); out.push({ i, p: p.clone(), q: q.clone(), s: s.clone(), c: c.clone() }); } return out; };
   const SH = inst(sh), GR = inst(grass);
   const M = new THREE.Matrix4(), S = new THREE.Vector3(), P2 = new THREE.Vector3();
-  let last = null;
-  // state for an element the front reached `age` metres ago
-  const st = (age) => (age < 0 ? 0 : age < 2.5 ? 1 : 2);
-  return function burn(fx) {
-    if (last !== null && Math.abs(fx - last) < 0.02) return;
-    last = fx;
-    // ground: glowing line at the front, char behind, ash-grey long after
+  let rec = null, A = null, last = -2;
+  // quantised visual state for an element reached `age` minutes ago that flames for `b` minutes
+  const code = (age, b) => (age < 0 ? 0 : age < b ? 1 + Math.min(7, Math.floor((age / b) * 8)) : 10 + Math.min(20, Math.floor((age - b) / 1.5)));
+  function prep(C) {
+    const at = (x, z, j) => { const a = C.at(x, z); return a ? [a.t + j, Math.max(1, a.b), a.f] : [Infinity, 1, 0]; };
+    A = {
+      t: tI.map((i) => at(tPos.getX(i), tPos.getZ(i), (h(tPos.getX(i), tPos.getZ(i)) - 0.5) * 0.6)), tS: new Int8Array(tI.length).fill(-1),
+      l: lobes.map((o) => o.L.map((b) => at(b.x, b.z, h(b.x, b.z) * 1.2))), lS: lobes.map((o) => new Int8Array(o.L.length).fill(-1)),
+      s: SH.map((e) => at(e.p.x, e.p.z, h(e.p.x, e.p.z))), sS: new Int8Array(SH.length).fill(-1),
+      g: GR.map((e) => at(e.p.x, e.p.z, h(e.p.x, e.p.z) * 0.5)), gS: new Int8Array(GR.length).fill(-1),
+    };
+  }
+  function update(C, m) {
+    if (C !== rec) { rec = C; prep(C); }
+    if (m === last) return; last = m;
+    // ground
+    let ch = false;
     for (let n = 0; n < tI.length; n++) {
-      const i = tI[n], age = fx - tPos.getX(i) + tJ[n];
-      if (age < 0) { tCol.setXYZ(i, tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]); continue; }
-      tc.setRGB(tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]);
-      if (age < 1.5) tc.lerp(FIRE, 0.85 * (1 - age / 1.5) + 0.15);
-      else tc.lerp(CHAR, Math.min(1, 0.6 + age / 6)).lerp(ASH, Math.max(0, Math.min(0.35, (age - 14) / 30)));
+      const [a, b] = A.t[n], age = m < 0 ? -1 : m - a, k = code(age, b); if (k === A.tS[n]) continue; A.tS[n] = k; ch = true;
+      const i = tI[n]; tc.setRGB(tc0[i * 3], tc0[i * 3 + 1], tc0[i * 3 + 2]);
+      if (k > 0) { if (k < 10) tc.lerp(FIRE, 0.9 - 0.3 * (age / b)); else tc.lerp(CHAR, Math.min(1, 0.75 + (age - b) / 10)).lerp(ASH, Math.max(0, Math.min(0.35, (age - b - 25) / 60))); }
       tCol.setXYZ(i, tc.r, tc.g, tc.b);
     }
-    tCol.needsUpdate = true;
-    // tree crowns: flare orange, then char and shrink to a burnt skeleton
-    for (const o of cv) {
-      const { P, C, Q, I, p0, c0, j } = o;
-      for (let n = 0; n < I.length; n++) {
-        const i = I[n], age = fx - Q.getX(i) - j[n] - 1.5;
-        const cx = Q.getX(i), cy = Q.getY(i), cz = Q.getZ(i);
-        if (age < 0) { P.setXYZ(i, p0[i * 3], p0[i * 3 + 1], p0[i * 3 + 2]); C.setXYZ(i, c0[i * 3], c0[i * 3 + 1], c0[i * 3 + 2]); continue; }
-        const k = age < 3 ? 1 : Math.max(0.3, 1 - (age - 3) / 9);
-        P.setXYZ(i, cx + (p0[i * 3] - cx) * k, cy + (p0[i * 3 + 1] - cy) * k - (1 - k) * 0.8, cz + (p0[i * 3 + 2] - cz) * k);
-        tc.setRGB(c0[i * 3], c0[i * 3 + 1], c0[i * 3 + 2]);
-        if (age < 3) tc.lerp(FIRE, 0.4 + 0.5 * Math.sin(Math.PI * age / 3)); else tc.lerp(CHAR, Math.min(1, 0.7 + (age - 3) / 8));
-        C.setXYZ(i, tc.r, tc.g, tc.b);
-      }
-      if (I.length) { P.needsUpdate = true; C.needsUpdate = true; }
-    }
+    if (ch) tCol.needsUpdate = true;
+    // tree crowns: torching crowns flare, char and thin to a skeleton; surface fire only scorches them
+    lobes.forEach((o, li) => {
+      let lo = Infinity, hi = -1;
+      o.L.forEach((b, n) => {
+        const [a, bd, f] = A.l[li][n], age = m < 0 ? -1 : m - a, k = code(age, bd * 1.5); if (k === A.lS[li][n]) return; A.lS[li][n] = k;
+        const crown = f & 1, sh = k === 0 || !crown ? 1 : k < 10 ? 1 : Math.max(0.3, 1 - (age - bd * 1.5) / 9);
+        for (let i = b.s; i < b.s + b.n; i++) {
+          o.P.setXYZ(i, b.x + (o.p0[i * 3] - b.x) * sh, b.y + (o.p0[i * 3 + 1] - b.y) * sh - (1 - sh) * 0.8, b.z + (o.p0[i * 3 + 2] - b.z) * sh);
+          tc.setRGB(o.c0[i * 3], o.c0[i * 3 + 1], o.c0[i * 3 + 2]);
+          if (k > 0) { if (!crown) tc.lerp(SCORCH, Math.min(0.65, 0.2 + age / 20)); else if (k < 10) tc.lerp(FIRE, 0.75); else tc.lerp(CHAR, 0.92); }
+          o.C.setXYZ(i, tc.r, tc.g, tc.b);
+        }
+        lo = Math.min(lo, b.s); hi = Math.max(hi, b.s + b.n);
+      });
+      if (hi > 0) { for (const at of [o.P, o.C]) { at.clearUpdateRanges(); at.addUpdateRange(lo * 3, (hi - lo) * 3); at.needsUpdate = true; } }
+    });
     // brush + grass: flare, then low black stubble
-    for (const [im, L, low] of [[sh, SH, 0.35], [grass, GR, 0.25]]) {
-      for (const e of L) {
-        const age = fx - e.p.x - e.j, s = st(age);
-        if (s === 0) { M.compose(e.p, e.q, e.s); im.setMatrixAt(e.i, M); im.setColorAt(e.i, e.c); continue; }
-        const k = s === 1 ? 1 : Math.max(low, 1 - (age - 2.5) / 4);
-        S.set(e.s.x * (0.6 + 0.4 * k), e.s.y * k, e.s.z * (0.6 + 0.4 * k));
-        P2.copy(e.p); P2.y -= e.s.y * (1 - k) * 0.4;
+    for (const [im, L, AA, SS, low] of [[sh, SH, A.s, A.sS, 0.35], [grass, GR, A.g, A.gS, 0.25]]) {
+      let c2 = false;
+      L.forEach((e, n) => {
+        const [a, b] = AA[n], age = m < 0 ? -1 : m - a, k = code(age, b); if (k === SS[n]) return; SS[n] = k; c2 = true;
+        if (k === 0) { M.compose(e.p, e.q, e.s); im.setMatrixAt(e.i, M); im.setColorAt(e.i, e.c); return; }
+        const kk = k < 10 ? 1 : Math.max(low, 1 - (age - b) / 4);
+        S.set(e.s.x * (0.6 + 0.4 * kk), e.s.y * kk, e.s.z * (0.6 + 0.4 * kk)); P2.copy(e.p); P2.y -= e.s.y * (1 - kk) * 0.4;
         M.compose(P2, e.q, S); im.setMatrixAt(e.i, M);
-        tc.copy(e.c).lerp(s === 1 ? FIRE : CHAR, s === 1 ? 0.75 : 0.92); im.setColorAt(e.i, tc);
-      }
-      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        tc.copy(e.c).lerp(k < 10 ? FIRE : CHAR, k < 10 ? 0.75 : 0.92); im.setColorAt(e.i, tc);
+      });
+      if (c2) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
     }
-  };
+  }
+  return { update };
 }

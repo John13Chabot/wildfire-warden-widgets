@@ -19,7 +19,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '3.8.0';
+const VERSION = '4.0.0';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 const root = rootH || rootS || rootF;
 const MODE = rootH ? 'h' : rootS ? 's' : 'f';
@@ -107,7 +107,8 @@ async function start(root, api) {
     scene.remove(embers); scene.remove(F.group); fxScene.add(embers); fxScene.add(F.group);
     Object.assign(embers.material, { opacity: 0, size: SMALL ? 1.6 : 2.0, color: new THREE.Color(1.6, 0.85, 0.3), blending: THREE.NormalBlending, sizeAttenuation: true });
   }
-  const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 };
+  const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
+  let camUser = false, camShot = null;
   // ---------- pins + camera rig ----------
   const pins = H.map((h, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
@@ -144,7 +145,7 @@ async function start(root, api) {
   tourUI();
   const cv = r.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); ray.firstHitOnly = true; let drag = null, hoverLock = false;
   const pick = (e) => { ray.far = Infinity; const b = cv.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam); const h = ray.intersectObjects(solids, false)[0]; return h && h.object.userData.k ? H.findIndex((x) => x.k === h.object.userData.k) : -1; };
-  cv.addEventListener('pointerdown', (e) => { stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0 }; goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; });
+  cv.addEventListener('pointerdown', (e) => { stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0 }; goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; camUser = true; });
   cv.addEventListener('pointermove', (e) => {
     if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; goal.az = clampAz(goal.az - dx * 0.006); goal.el = clampEl(goal.el + dy * 0.004); }
     else if (e.pointerType === 'mouse' && MODE === 'h') { if (hoverLock) return; hoverLock = true; requestAnimationFrame(() => (hoverLock = false)); const i = pick(e); cv.style.cursor = i >= 0 ? 'pointer' : ''; if (i >= 0 && i !== api.cur) api.set(i); else if (i < 0 && api.cur !== api.pinned) api.set(api.pinned); }
@@ -186,7 +187,7 @@ async function start(root, api) {
     sketch.setSize(w, h, r.getPixelRatio()); if (sketch2) sketch2.setSize(w, h, r.getPixelRatio());
     if (F) { root.classList.toggle('is-vert', sp === 'v'); }
   }
-  if (F) api.onLayout = () => size();
+  if (F) { api.onLayout = () => size(); api.onRun = () => { camUser = false; camShot = null; }; }
   new ResizeObserver(size).observe(stage); size(); setTier(tier);
   // pick a starting quality tier from a quick synchronous benchmark (skipped on small screens)
   if (tier > 0) {
@@ -205,14 +206,17 @@ async function start(root, api) {
     if (F) {
       api.fire.tick(raw); F.tick(dt);
       wf = WIND[api.fire.st.wind].f;
-      const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf); gst = envS.gust;
+      const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf, api.fire.st.wind, api.fire.st.ran, cam); gst = envS.gust;
+      // camera follows the recording: wide on the hillside while the fire approaches, then in on the houses
+      if (api.fire.st.ran && !camUser && api.fire.st.TL) { const v = api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } }
+      if (!api.fire.st.ran) camShot = null;
       embers.material.opacity = api.fire.st.ran ? Math.min(1, envS.emberLevel) : 0.15;
       fire.intensity = 0.25 + (api.fire.st.ran ? envS.glow : 0);
       // smoke-filled sky: sun dims and reddens, ambient goes brown, then clears to grey haze
       const k = api.fire.st.ran ? envS.smoke : 0, g = api.fire.st.ran ? envS.grey : 0;
       sun.color.copy(SUN0).lerp(SMOKY, k * (1 - g)).lerp(GREYL, k * g); sun.intensity = SUNI * (1 - 0.72 * k);
       hemi.color.copy(HS0).lerp(SMOKY, 0.55 * k * (1 - g)).lerp(GREYL, 0.6 * k * g); hemi.groundColor.copy(HG0).lerp(new THREE.Color(0.25, 0.2, 0.17), k); hemi.intensity = HI * (1 - 0.4 * k);
-      atmo.tint.copy(TINT_B).lerp(TINT_G, g); atmo.tintK = k * 0.6; atmo.haze.copy(HAZE_B).lerp(HAZE_G, g); atmo.hazeK = k * 0.38; atmo.time = t;
+      atmo.tint.copy(TINT_B).lerp(TINT_G, g); atmo.tintK = k * 0.6; atmo.haze.copy(HAZE_B).lerp(HAZE_G, g); atmo.hazeK = k * 0.3; atmo.fade = camShot === FW ? [90, 240] : [45, 150]; atmo.time = t;
       sketch.atmo(atmo); sketch2.atmo(atmo);
     }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);

@@ -20,13 +20,13 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
       tColor: { value: rtColor.texture }, tDepth: { value: rtColor.depthTexture }, tNormal: { value: rtNormal.texture }, tPaper: { value: paperTex }, tFx: { value: rtFx.texture }, useFx: { value: 0 },
       res: { value: new THREE.Vector2(1, 1) }, dpr: { value: 1 }, near: { value: 0.3 }, far: { value: 4000 },
       paper: { value: new THREE.Color(paper).convertLinearToSRGB() }, ink: { value: new THREE.Color(ink).convertLinearToSRGB() }, exposure: { value: 1.75 },
-      uTint: { value: new THREE.Color(1, 1, 1) }, uTintK: { value: 0 }, uHaze: { value: new THREE.Color(1, 1, 1) }, uHazeK: { value: 0 }, uShim: { value: 0 }, uDark: { value: 0 }, uTime: { value: 0 },
+      uTint: { value: new THREE.Color(1, 1, 1) }, uTintK: { value: 0 }, uHaze: { value: new THREE.Color(1, 1, 1) }, uHazeK: { value: 0 }, uShim: { value: 0 }, uDark: { value: 0 }, uFade: { value: new THREE.Vector2(45, 150) }, uTime: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: /* glsl */ `
       #include <packing>
       uniform sampler2D tColor, tDepth, tNormal, tPaper, tFx;
-      uniform vec2 res; uniform float dpr, near, far, exposure, useFx, uDark, uTintK, uHazeK, uShim, uTime; uniform vec3 paper, ink, uTint, uHaze;
+      uniform vec2 res; uniform float dpr, near, far, exposure, useFx, uDark, uTintK, uHazeK, uShim, uTime; uniform vec3 paper, ink, uTint, uHaze; uniform vec2 uFade;
       varying vec2 vUv;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -77,7 +77,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
           float h = l1 * smoothstep(0.52, 0.3, lum) + l2 * smoothstep(0.32, 0.12, lum);
           col = mix(col, ink, clamp(h, 0.0, 1.0) * 0.28 * br);
           // atmospheric fade with distance — drawings get lighter toward the back
-          float far = smoothstep(45.0, 150.0, z);
+          float far = smoothstep(uFade.x, uFade.y, z);
           col = mix(col, pap, far * 0.8);
           e *= 1.0 - far * 0.85;
         }
@@ -100,7 +100,7 @@ export function createSketch(r, { paper = '#f4efe4', ink = '#2a2825' } = {}) {
   const quad = new FullScreenQuad(mat);
 
   return {
-    atmo(o) { const u = mat.uniforms; u.uTint.value.copy(o.tint); u.uTintK.value = o.tintK; u.uHaze.value.copy(o.haze); u.uHazeK.value = o.hazeK; u.uShim.value = o.shim; u.uDark.value = 1; u.uTime.value = o.time; },
+    atmo(o) { const u = mat.uniforms; u.uTint.value.copy(o.tint); u.uTintK.value = o.tintK; u.uHaze.value.copy(o.haze); u.uHazeK.value = o.hazeK; u.uShim.value = o.shim; u.uDark.value = 1; if (o.fade) u.uFade.value.set(o.fade[0], o.fade[1]); u.uTime.value = o.time; },
     setSize(w, h, pr) {
       const W = Math.max(1, Math.floor(w * pr)), H = Math.max(1, Math.floor(h * pr));
       if (rtColor.width === W && rtColor.height === H) { mat.uniforms.dpr.value = pr; return; }

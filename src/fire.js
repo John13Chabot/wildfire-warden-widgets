@@ -1,17 +1,16 @@
 import * as THREE from 'three';
 import * as T from './tex.js';
 import { flameShaders } from './fireshader.js';
+import { rec, recordedOutcome, createEnvFX, timeline } from './playback.js';
 
 // ---------------------------------------------------------------------------
-// Rule-based wildfire exposure model (illustrative, deterministic).
-// Sim time is in minutes from first ember arrival. Phases: ember storm 0–60,
-// fire front 60–80, after the front 80–240 (hidden fires take hold).
+// Recorded wildfire (tools/bake.mjs): Rothermel spread + ember spotting + house exposure,
+// baked once for every wind setting and every combination of upgrades. The page only plays it back.
 // ---------------------------------------------------------------------------
 export const EXT = ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']; // map order 1–7
 export const INNER = ['atticSp', 'crawl', 'struct'];
-export const TMAX = 240;
-export const PHASES = [[0, 60, 'Ember storm'], [60, 80, 'Fire front'], [80, 240, 'After the front']];
 export const WIND = { calm: { f: 0.6, n: 'Light wind' }, windy: { f: 1, n: 'Windy' }, santaana: { f: 1.5, n: 'Santa Ana' } };
+export { PLAY_END, timeline } from './playback.js';
 
 export const UPG = {
   attic: { n: 'Attic & gable vents', fix: 'Ember-resistant vent mesh or Brandguard vents', svc: 'vents' },
@@ -22,59 +21,7 @@ export const UPG = {
   found: { n: 'Foundation & crawl space vents', fix: 'Ember-resistant vent mesh or Brandguard vents', svc: 'vents' },
   zone: { n: 'Zone 0: the first 5 feet', fix: 'Zone 0 clean-up + Phos-Chek FORTIFY', svc: 'fortify' },
 };
-
-const IGN = {
-  zone: 'Embers ignite mulch and plants against the house',
-  gutter: 'Embers ignite leaves and needles in the gutter',
-  attic: 'Embers blow through the 1/4" gable vent screen',
-  found: 'Embers and flames enter a foundation vent',
-  deck: 'Embers lodge between deck boards and ignite',
-  eaves: 'Heat and embers collect in the open eaves',
-  wood: 'Flames reach the exposed fascia and trim',
-  atticSp: 'Attic fire, hidden from view',
-  crawl: 'Fire in the crawl space under the floor',
-  struct: 'Fire spreads through the house',
-};
-const STOP = {
-  zone: 'Clear Zone 0: embers land on nothing that burns',
-  gutter: 'Gutter guard: no debris for embers to ignite',
-  attic: 'Vent mesh blocks the embers',
-  found: 'Vent mesh keeps embers out of the crawl space',
-  deck: 'DeckGuard: the deck boards resist ignition',
-  eaves: 'Boxed eaves: no pockets to trap heat and embers',
-  wood: 'Coated wood resists the flames',
-};
-
-// exposure: [node, minute (before wind scaling), kind, min wind factor]
-const EXPO = [
-  ['gutter', 18, 'ember', 0], ['zone', 22, 'ember', 0], ['attic', 30, 'ember', 0], ['deck', 35, 'ember', 0],
-  ['found', 40, 'ember', 1], ['eaves', 66, 'front', 0], ['wood', 72, 'front', 1.5],
-];
-// spread: [from, to, delay min]
-const EDGE = [
-  ['gutter', 'wood', 12], ['gutter', 'eaves', 18], ['zone', 'found', 15], ['zone', 'wood', 25],
-  ['deck', 'wood', 15], ['deck', 'eaves', 25], ['wood', 'eaves', 10], ['attic', 'atticSp', 8],
-  ['eaves', 'atticSp', 12], ['wood', 'atticSp', 30], ['found', 'crawl', 10], ['crawl', 'struct', 60], ['atticSp', 'struct', 45],
-];
-
-export function simulate(up, wind) {
-  const wf = WIND[wind].f, ign = {}, cause = {}, stop = {}, ember = {};
-  const can = (k) => !up.has(k);
-  const hit = (k, t, c) => { if (can(k)) { if (!(ign[k] <= t)) { ign[k] = t; cause[k] = c; } } else if (!(stop[k] <= t)) stop[k] = t; };
-  for (const [k, t, kind, mw] of EXPO) if (wf >= mw) { const tt = kind === 'ember' ? Math.round((t / wf) * (k === 'attic' && wf < 1 ? 1.5 : 1)) : t; if (kind === 'ember') ember[k] = tt; hit(k, tt, kind); }
-  for (let it = 0; it < 12; it++) for (const [a, b, d] of EDGE) if (ign[a] != null) hit(b, ign[a] + d, a);
-  const ev = [];
-  for (const k in ign) ev.push({ k, t: ign[k], kind: 'ign', text: IGN[k], from: cause[k] });
-  for (const k in stop) ev.push({ k, t: stop[k], kind: 'stop', text: STOP[k] });
-  ev.sort((a, b) => a.t - b.t);
-  return { ign, stop, ember, ev, lost: ign.struct != null };
-}
-
-// sim minutes <-> playback seconds (piecewise linear)
-const PB = [[0, 0], [60, 18], [80, 28], [240, 50]];
-export const PLAY_END = PB[PB.length - 1][1];
-export function toSec(m) { for (let i = 1; i < PB.length; i++) if (m <= PB[i][0]) { const [a, b] = [PB[i - 1], PB[i]]; return a[1] + (m - a[0]) / (b[0] - a[0]) * (b[1] - a[1]); } return PLAY_END; }
-export function toMin(s) { for (let i = 1; i < PB.length; i++) if (s <= PB[i][1]) { const [a, b] = [PB[i - 1], PB[i]]; return a[0] + (s - a[1]) / (b[1] - a[1]) * (b[0] - a[0]); } return TMAX; }
+export function simulate(up, wind) { return recordedOutcome(up, wind, EXT); }
 
 // ---------------------------------------------------------------------------
 // Visual effects (one shared scene, per-side state applied before each render)
@@ -110,18 +57,9 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       return { cards, s, g, p, ph: j * 1.7 + k.length };
     });
   }
-  // fire front on the hillside (shared by both sides)
-  const front = [];
-  const FN = SMALL ? 22 : 40;
-  T.reseed(5);
-  for (let i = 0; i < FN; i++) {
-    const x = T.rr(-44, -11), z = T.rr(-12, 24), y = hgt(x, z);
-    const f = SH.flame(i * 1.9 + 40); f.position.set(x, y - 0.2, z); f.visible = false; G.add(f);
-    const s = SH.smoke(i * 0.7 + 11); s.position.set(x, y + 4, z); s.visible = false; G.add(s);
-    front.push({ f, s, x, ph: i * 0.37, sz: T.rr(4, 7.5) });
-  }
+  const ENV = createEnvFX({ G, SH, hgt, RM, SMALL, gT });
   // torching trees on the hillside
-  const tf = TREES.map((tr, i) => {
+  const tf = TREES.map((tr0, i) => { const tr = { ...tr0, x: tr0.cx ?? tr0.x, z: tr0.cz ?? tr0.z, gx: tr0.x, gz: tr0.z };
     const cards = [0, 1, 2].slice(0, SMALL ? 2 : 3).map((c) => { const f = SH.flame(i * 5.3 + c * 2.9 + 70); f.visible = false; G.add(f); return f; });
     const s = SH.smoke(i * 1.7 + 30); s.visible = false; G.add(s);
     return { ...tr, cards, s, j: (i * 0.618) % 1 * 2 };
@@ -151,7 +89,8 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
   const leanOf = () => Math.min(0.8, (0.12 + Math.max(0, wf - 0.6) * 0.75) * gust);   // calm ~0.12, windy ~0.5, Santa Ana ~0.95
   const lvl = (S, k, m) => (S.ign[k] == null || m < S.ign[k] ? 0 : Math.min(1, (m - S.ign[k]) / 6));
   // intensity curve: ramps up, roars, then settles to a low smoulder after ~30 sim-min (struct keeps going)
-  const roar = (k, age) => (k === 'struct' ? 1 : age < 25 ? 1 : Math.max(0.45, 1 - (age - 25) / 60));
+  // house fire: growth (0-12 min), fully involved (to ~60), collapse and burn-down (60-120), then smouldering
+  const roar = (k, age) => (k === 'struct' ? (age < 12 ? 0.35 + 0.65 * age / 12 : age < 60 ? 1 : Math.max(0.12, 1 - (age - 60) / 60 * 0.88)) : age < 25 ? 1 : Math.max(0.45, 1 - (age - 25) / 60));
 
   return {
     group: G,
@@ -207,33 +146,27 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       if (D) D.apply(S, m, t, act, RM);
     },
     // hillside fire front + ember density (same for both sides)
-    env(m, w) {
+    env(m, w, wind, ran, cam) {
       wf = w;
-      const fx = -48 + Math.max(0, Math.min(1, (m - 50) / 30)) * 38;
-      for (const p of front) {
-        const lit = m >= 50 && p.x <= fx, age = fx - p.x, out = age > 26;
-        p.f.visible = lit && !out;
-        if (p.f.visible) { const b = Math.min(1, age / 4) * Math.max(0.2, 1 - age / 26); { const ln = leanOf(); p.f.scale.set(p.sz * (1.0 + 0.6 * ln) * (0.5 + 0.5 * b), p.sz * 1.7 * (1 - 0.3 * ln) * (0.4 + 0.6 * b), 1); } p.f.material.uniforms.uI.value = 0.5 + 0.6 * b; p.f.material.uniforms.uLean.value = leanOf(); }
-        p.s.visible = lit && age < 40;
-        if (p.s.visible) { const u = RM ? 0.5 : (t * 0.15 + p.ph) % 1; const sc = 7 + u * 12; p.s.position.y = p.f.position.y + 5 + u * 11; p.s.position.x = p.x + u * (2 + 14 * leanOf()); p.s.scale.set(sc, sc, 1); p.s.material.uniforms.uI.value = 0.55 * Math.sin(Math.PI * Math.min(1, u * 1.3 + 0.1)) * Math.max(0.2, 1 - age / 40); }
-      }
-      if (burn) burn(fx);
+      const C = rec(wind), TL = timeline(wind);
+      ENV.update(C, m, t, leanOf(), ran, cam);
+      if (burn) burn.update(C, ran ? m : -1);
       for (const tr of tf) {
-        const age = fx - tr.x - tr.j, on = age > 0 && age < 9;
+        const a = ran ? C.at(tr.gx, tr.gz) : null, age = a ? m - a.t : -1, on = !!a && (a.f & 1) && age > 0 && age < 9;
         const b = on ? Math.min(1, age / 1.2) * Math.max(0, Math.min(1, (9 - age) / 4)) : 0;
         tr.cards.forEach((f, c) => {
           f.visible = on && b > 0.02;
           if (!f.visible) return;
           const ln = leanOf(), hh = (tr.h * 0.6 + tr.r) * (0.6 + 0.5 * b) * (c ? 0.8 : 1) * (1 - 0.3 * ln);
           f.position.set(tr.x + (c - 1) * tr.r * 0.4, tr.y - tr.h * 0.3, tr.z + (c - 1) * 0.5);
-          f.scale.set(Math.max(tr.r * 1.6, hh * 0.7) * (1 + 0.5 * ln), hh, 1);
-          f.material.uniforms.uI.value = 0.6 + 0.5 * b; f.material.uniforms.uLean.value = leanOf();
+          f.scale.set(Math.max(tr.r * 2.0, hh * 0.85) * (1 + 0.3 * ln), hh, 1);
+          f.material.uniforms.uI.value = 0.6 + 0.5 * b; f.material.uniforms.uLean.value = leanOf() * 0.5;
         });
-        tr.s.visible = age > 0.5 && age < 26;
+        tr.s.visible = on || (!!a && age > 0.5 && age < 26 && (a.f & 1));
         if (tr.s.visible) { const u = RM ? 0.5 : (t * 0.17 + tr.j) % 1; const ss = tr.r * (2 + u * 3); tr.s.position.set(tr.x + u * (2 + 12 * leanOf()), tr.y + tr.h * 0.6 + u * 9, tr.z); tr.s.scale.set(ss, ss, 1); tr.s.material.uniforms.uI.value = 0.6 * Math.sin(Math.PI * Math.min(1, u * 1.3 + 0.1)) * Math.max(0.2, 1 - age / 26); }
       }
       // ash: starts with the front, lingers after
-      const ashK = m < 55 ? 0 : Math.min(1, (m - 55) / 25) * (m < 160 ? 1 : Math.max(0.35, 1 - (m - 160) / 120));
+      const ashK = !ran || m < TL.tF - 2 ? 0 : Math.min(1, (m - TL.tF + 2) / 20) * Math.max(0.35, 1 - Math.max(0, m - TL.tP - 60) / 120);
       ash.material.opacity = ashK * 0.85;
       if (ashK > 0) for (let i = 0; i < AN; i++) {
         const a = aS[i], y = ((a[1] - t * a[3] * 0.9) % 26 + 26) % 26;
@@ -242,12 +175,12 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       }
       ashG.attributes.position.needsUpdate = ashK > 0;
       // ember storm intensity 0..1 (peaks during the ember phase and the front)
-      const e = m < 2 ? m / 2 : m < 80 ? 1 : Math.max(0.15, 1 - (m - 80) / 60);
+      const e = m < TL.tE ? 0.15 + 0.6 * m / TL.tE : m < TL.tP ? 1 : Math.max(0.15, 1 - (m - TL.tP) / 60);
       const fl = RM ? 1 : 0.88 + 0.12 * Math.sin(t * 13) * Math.sin(t * 7.1 + 1.3);
       // smoke in the sky: builds through the ember storm, peaks with the front, thins to grey haze
-      const smoke = m < 50 ? 0.15 + m / 50 * 0.35 : m < 75 ? 0.5 + (m - 50) / 25 * 0.5 : Math.max(0.35, 1 - (m - 75) / 110);
-      const grey = Math.max(0, Math.min(1, (m - 85) / 70));
-      return { smoke, grey, gust, emberLevel: e * wf, frontX: fx, glow: fl * (m < 50 ? m / 50 * 0.4 : m < 80 ? 0.4 + (m - 50) / 30 * 0.9 : Math.max(0.35, 1.3 - (m - 80) / 80)) };
+      const smoke = ran ? Math.max(0.12, C.smokeA[Math.min(C.smokeA.length - 1, Math.max(0, Math.floor(m)))] / 255) : 0;
+      const grey = Math.max(0, Math.min(1, (m - TL.tP) / 60));
+      return { smoke, grey, gust, emberLevel: e * wf * 0.6, glow: fl * smoke * 1.3 };
     },
     reset() { if (D) D.reset(); for (const k of EXT) for (const mt of mats[k]) { mt.color.copy(mt.userData.c0); mt.emissive.copy(mt.userData.e0); mt.emissiveIntensity = mt.userData.i0; } },
     EMIT,

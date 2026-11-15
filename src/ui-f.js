@@ -1,4 +1,4 @@
-import { EXT, UPG, WIND, PHASES, TMAX, PLAY_END, simulate, toSec, toMin } from './fire.js';
+import { EXT, UPG, WIND, PLAY_END, timeline, simulate } from './fire.js';
 
 const PRESETS = [
   { n: 'No upgrades', up: [] },
@@ -12,8 +12,9 @@ export function initFire(root) {
   const st = { up: new Set(EXT), wind: 'santaana', cmp: true, T: 0, play: false, ran: false, sims: [] };
   const api = { D: EXT.map((k) => ({ t: UPG[k].n })), ls: [], cur: null, pinned: null, set() {}, pin() {}, pickKey() {}, sel: () => null };
 
-  // phase segments on the timeline
-  $('.wwh3f-segs').innerHTML = PHASES.map(([a, b, n]) => '<span style="width:' + ((toSec(b) - toSec(a)) / PLAY_END * 100).toFixed(2) + '%">' + n + '</span>').join('');
+  let TL = timeline(st.wind);
+  const segs = () => { $('.wwh3f-segs').innerHTML = TL.PHASES.map(([a, b, n]) => '<span style="width:' + ((TL.toSec(b) - TL.toSec(a)) / PLAY_END * 100).toFixed(2) + '%">' + n + '</span>').join(''); };
+  segs();
   // presets, upgrades, wind
   const pre = $('.wwh3f-presets');
   pre.innerHTML = PRESETS.map((p, i) => '<button type="button" data-i="' + i + '">' + p.n + '</button>').join('');
@@ -24,12 +25,13 @@ export function initFire(root) {
   const cmpBox = $('.wwh3f-cmp input'), range = $('.wwh3f-range'), clock = $('.wwh3f-clock'), playBtn = $('.wwh3f-play'), phaseEl = $('.wwh3f-phase'), res = $('.wwh3f-res'), labels = $('.wwh3f-labels');
 
   function recompute() {
+    const sec = TL.toSec(st.T); TL = timeline(st.wind); segs(); st.TL = TL; st.T = TL.toMin(sec);
     st.sims = [simulate(new Set(), st.wind), simulate(st.up, st.wind)];
     ups.querySelectorAll('.wwh3f-up').forEach((b) => b.setAttribute('aria-pressed', st.up.has(b.dataset.k)));
     wind.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', b.dataset.w === st.wind));
     pre.querySelectorAll('button').forEach((b) => { const p = PRESETS[+b.dataset.i].up; b.classList.toggle('on', p.length === st.up.size && p.every((k) => st.up.has(k))); });
     root.classList.toggle('is-cmp', st.cmp);
-    if (st.T >= TMAX) results();
+    if (st.T >= TL.TMAX) results();
   }
   pre.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; st.up = new Set(PRESETS[+b.dataset.i].up); recompute(); });
   ups.addEventListener('click', (e) => { const b = e.target.closest('.wwh3f-up'); if (!b) return; const k = b.dataset.k; st.up.has(k) ? st.up.delete(k) : st.up.add(k); recompute(); });
@@ -37,10 +39,10 @@ export function initFire(root) {
   cmpBox.addEventListener('change', () => { st.cmp = cmpBox.checked; recompute(); api.onLayout && api.onLayout(); });
 
   const setPlay = (p) => { st.play = p; playBtn.innerHTML = p ? '&#10074;&#10074;' : '&#9654;'; playBtn.setAttribute('aria-label', p ? 'Pause' : 'Play'); };
-  const run = () => { if (st.T >= TMAX) { st.T = 0; res.hidden = true; } st.ran = true; root.classList.add('is-run'); setPlay(true); };
+  const run = () => { if (st.T >= TL.TMAX) { st.T = 0; res.hidden = true; } if (st.T === 0 && api.onRun) api.onRun(); st.ran = true; root.classList.add('is-run'); setPlay(true); };
   $('.wwh3f-go').addEventListener('click', run);
   playBtn.addEventListener('click', () => (st.play ? setPlay(false) : run()));
-  range.addEventListener('input', () => { st.ran = true; root.classList.add('is-run'); setPlay(false); st.T = toMin(+range.value / 1000 * PLAY_END); res.hidden = st.T < TMAX; if (st.T >= TMAX) results(); });
+  range.addEventListener('input', () => { st.ran = true; root.classList.add('is-run'); setPlay(false); st.T = TL.toMin(+range.value / 1000 * PLAY_END); res.hidden = st.T < TL.TMAX; if (st.T >= TL.TMAX) results(); });
 
   function results() {
     const card = (S, title, up) => {
@@ -67,13 +69,13 @@ export function initFire(root) {
     st,
     tick(raw) {
       if (st.play && !document.hidden) {
-        const s = Math.min(PLAY_END, toSec(st.T) + Math.min(raw, 0.25));
-        st.T = toMin(s);
-        if (s >= PLAY_END) { st.T = TMAX; setPlay(false); results(); }
+        const s = Math.min(PLAY_END, TL.toSec(st.T) + Math.min(raw, 0.25));
+        st.T = TL.toMin(s);
+        if (s >= PLAY_END) { st.T = TL.TMAX; setPlay(false); results(); }
       }
-      range.value = Math.round(toSec(st.T) / PLAY_END * 1000);
+      range.value = Math.round(TL.toSec(st.T) / PLAY_END * 1000);
       clock.textContent = st.ran ? fmt(st.T) + ' hr' : '';
-      const ph = PHASES.find(([a, b]) => st.T >= a && st.T < b);
+      const ph = TL.PHASES.find(([a, b]) => st.T >= a && st.T < b);
       phaseEl.textContent = ph ? ph[2] : 'Hours later';
       phaseEl.classList.toggle('on', st.ran);
     },
