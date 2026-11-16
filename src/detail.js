@@ -35,6 +35,12 @@ export function createDetails({ scene, reg, hgt, SMALL }) {
   };
   // UP: build the upgraded version of a set (what the work looks like after the retrofit)
   let UP = false;
+  M.glassD = std({ color: '#2a3a42', roughness: 0.04, metalness: 0.3, transparent: true, opacity: 0.38, side: THREE.DoubleSide });
+  M.sash = std({ map: T.woodGrain([150, 120, 88]), roughness: 0.7 }, 1); M.paint = std({ map: T.woodGrain([170, 140, 104]), roughness: 0.55 }, 1);
+  M.alu = std({ color: '#3b342d', roughness: 0.35, metalness: 0.7 }); M.spacer = std({ color: '#b8bcbe', roughness: 0.3, metalness: 0.9 });
+  M.rubber = std({ color: '#141414', roughness: 0.9 }); M.mortar = std({ color: '#b86a44', map: T.stucco(), roughness: 1 }, 6);
+  M.tile = std({ color: '#a8502c', roughness: 0.7, side: THREE.DoubleSide }); M.void = std({ color: '#050403', roughness: 1, side: THREE.DoubleSide });
+  M.fenceW = std({ map: T.woodGrain([126, 90, 58]), roughness: 0.9 }, 1); M.fenceG = std({ map: T.woodGrain([104, 92, 78]), roughness: 0.95 }, 1);
   M.coat = std({ color: '#e7e1d5', roughness: 0.7 }); M.fc = std({ color: '#ece7dc', map: T.stucco(), roughness: 0.9 }, 4);
   M.ss = std({ color: '#b9bcbd', roughness: 0.3, metalness: 0.85, side: THREE.DoubleSide }); M.sealed = std({ map: T.woodGrain([110, 70, 42]), roughness: 0.45 }, 1);
   M.gravA = std({ color: '#8d8a84', roughness: 1 }); M.gravB = std({ color: '#a7a39a', roughness: 1 }); M.gravC = std({ color: '#6f6c67', roughness: 1 });
@@ -226,10 +232,75 @@ export function createDetails({ scene, reg, hgt, SMALL }) {
       K.done();
     },
   };
+  Object.assign(B, {
+    // 8 — barrel-tile eave: open tile ends (embers blow straight in) vs bird stops / mortar closures
+    roof(g) {
+      const K = kit(g), a = Math.atan2(1.6, 3.5), y0 = 5.93, z0 = 3.62;
+      for (let x = -4.2; x <= -1.55; x += 0.3) {
+        // pan (concave) under, cap (convex) over the joint
+        K.put(new THREE.CylinderGeometry(0.15, 0.13, 0.5, 14, 1, true, PI / 2, PI), M.tile, x, y0 - 0.02, z0 - 0.2, PI / 2 - a, 0, 0);
+        K.put(new THREE.CylinderGeometry(0.13, 0.11, 0.5, 14, 1, true, -PI / 2, PI), M.tile, x + 0.15, y0 + 0.11, z0 - 0.2, PI / 2 - a, 0, 0);
+        if (UP) { K.put(new THREE.CircleGeometry(0.12, 14, 0, PI), M.mortar, x + 0.15, y0 + 0.1, z0 + 0.03, -a * 0.2, 0, 0); K.put(new THREE.CircleGeometry(0.13, 14, PI, PI), M.mortar, x, y0 - 0.01, z0 + 0.03, -a * 0.2, 0, 0); }
+        else { K.put(new THREE.CircleGeometry(0.115, 14, 0, PI), M.void, x + 0.15, y0 + 0.1, z0 + 0.02, -a * 0.2, 0, 0); if (r() < 0.5) K.inst(needleGeo, M.needle, 6, (i, m) => place(m, x + 0.15 + (r() - 0.5) * 0.18, y0 + 0.07, z0 - 0.02 - r() * 0.15, PI / 2, r() * PI, 0, 1, 0.06 + r() * 0.06, 1)); }
+      }
+      if (UP) K.box(2.8, 0.035, 0.05, M.alu, -2.85, y0 - 0.12, z0 + 0.02, 0, 0, 0);
+      else leaves(K, 20, (i, m) => place(m, -4.2 + r() * 2.7, y0 + 0.13, z0 - 0.15 - r() * 0.3, -PI / 2 + a, r() * PI, 0, 0.025, 0.025, 1));
+      K.done();
+    },
+    // 9 — west upper window: single-pane wood sash with glazing putty vs dual-pane tempered in an aluminum frame
+    windows(g) {
+      const sub = new THREE.Group(); sub.position.set(-4.0, 3.6, 2.0); sub.rotation.y = -PI / 2; g.add(sub);
+      const K = kit(sub), w = 0.92, hr = 1.3;
+      const fr = UP ? M.alu : M.sash, th = UP ? 0.05 : 0.04;
+      K.box(w, th, 0.06, fr, 0, 0.02, 0.06); K.box(w, th, 0.06, fr, 0, hr - 0.02, 0.06);
+      for (const s of [-1, 1]) K.box(th, hr, 0.06, fr, s * (w / 2 - th / 2), hr / 2, 0.06);
+      // panes
+      K.box(w - 0.08, hr - 0.08, 0.004, M.glassD, 0, hr / 2, 0.055);
+      if (UP) { K.box(w - 0.08, hr - 0.08, 0.004, M.glassD, 0, hr / 2, 0.08); for (const s of [-1, 1]) { K.box(w - 0.1, 0.012, 0.022, M.spacer, 0, hr / 2 + s * (hr / 2 - 0.05), 0.068); K.box(0.012, hr - 0.1, 0.022, M.spacer, s * (w / 2 - 0.05), hr / 2, 0.068); } }
+      // muntins (true divided lites on the old sash, applied grille on the new unit)
+      for (const x of [-w / 6, w / 6]) K.box(UP ? 0.02 : 0.026, hr - 0.06, 0.03, fr, x, hr / 2, 0.075);
+      for (const y of [hr / 3, (2 * hr) / 3]) K.box(w - 0.06, UP ? 0.02 : 0.026, 0.03, fr, 0, y, 0.075);
+      if (!UP) for (let i = 0; i < 8; i++) K.box(0.05 + r() * 0.1, 0.004, 0.006, M.dark, -w / 2 + 0.1 + r() * (w - 0.2), 0.08 + r() * (hr - 0.16), 0.085);   // cracked putty
+      K.box(w + 0.1, 0.05, 0.12, UP ? M.alu : M.sash, 0, -0.01, 0.1);
+      K.done();
+    },
+    // 10 — wood carriage doors: open gaps at the sill and meeting stiles vs weather seals, astragal, ignition-resistant facing
+    walls(g) {
+      const K = kit(g), x0 = 9.5, z0 = 3.04;
+      for (let i = -3; i <= 3; i++) K.box(0.25, 2.5, 0.03, UP ? M.paint : r() < 0.5 ? M.board : M.woodLt, x0 + i * 0.26, 1.27, z0 + (UP ? 0.012 : 0), 0, 0, 0);
+      if (UP) { K.box(1.9, 0.05, 0.05, M.rubber, x0, 0.025, z0 + 0.03); K.box(0.06, 2.6, 0.04, M.rubber, x0, 1.3, z0 + 0.035); for (const s of [-1, 1]) K.box(0.035, 2.6, 0.04, M.rubber, x0 + s * 0.97, 1.3, z0 + 0.03); }
+      else {
+        K.box(1.9, 0.03, 0.02, M.dark, x0, 0.015, z0 + 0.02);                 // daylight gap at the sill
+        K.box(0.02, 2.5, 0.02, M.dark, x0, 1.27, z0 + 0.02);                   // gap between leaves
+        leaves(K, 40, (i, m) => place(m, x0 - 1 + r() * 2, 0.02, z0 + 0.03 + r() * 0.25, -PI / 2, r() * PI, 0, 0.03, 0.03, 1));
+      }
+      K.done();
+    },
+    // 11 — fence attached to the house: wood boards, wood gate and debris at the base vs steel gate and panels on gravel
+    fence(g) {
+      const K = kit(g), z = -4.08;
+      for (let x = -4.08; x > -5.6; x -= (UP ? 0.11 : 0.15)) {
+        const y = hgt(x, z) - 0.04;
+        if (UP) K.box(0.025, 1.8, 0.025, M.alu, x, y + 0.92, z);
+        else K.box(0.14, 1.85, 0.028, r() < 0.5 ? M.fenceW : M.fenceG, x, y + 0.925, z);
+      }
+      const y1 = hgt(-4.8, z);
+      if (UP) { for (const yy of [0.12, 1.0, 1.8]) K.box(1.55, 0.05, 0.05, M.alu, -4.84, y1 + yy, z); K.box(0.06, 2.0, 0.06, M.alu, -4.1, y1 + 1.0, z); K.box(0.06, 2.0, 0.06, M.alu, -5.58, y1 + 1.0, z);
+        const MU = [M.gravA, M.gravB, M.gravC]; MU.forEach((mat) => K.inst(chipGeo, mat, 160, (i, m) => place(m, -4.1 - r() * 1.5, hgt(-4.8, z) + 0.03, z - 0.5 + r() * 1.0, r() * PI, r() * PI, r() * PI, 0.02 + r() * 0.03, 0.015, 0.02 + r() * 0.02)));
+      } else {
+        for (const yy of [0.3, 1.5]) K.box(1.55, 0.09, 0.05, M.fenceG, -4.84, y1 + yy, z + 0.04);
+        K.box(1.3, 0.09, 0.05, M.fenceG, -4.84, y1 + 0.9, z + 0.04, 0, 0, 0.9);                                   // gate brace
+        for (const yy of [0.35, 1.45]) K.box(0.22, 0.04, 0.012, M.metal, -4.22, y1 + yy, z + 0.07);               // hinges
+        leaves(K, 160, (i, m) => place(m, -4.1 - r() * 1.5, hgt(-4.8, z) + 0.02 + r() * 0.05, z + (r() - 0.5) * 0.5, -PI / 2 + (r() - 0.5) * 0.8, r() * PI, 0, 0.03 + r() * 0.02, 0.03 + r() * 0.02, 1));
+        K.inst(needleGeo, M.needle, 200, (i, m) => place(m, -4.1 - r() * 1.5, hgt(-4.8, z) + 0.03, z + (r() - 0.5) * 0.4, PI / 2, r() * PI, 0, 1, 0.06 + r() * 0.08, 1));
+      }
+      K.done();
+    },
+  });
   // where each set lives and when to show it
-  const AT = { attic: [1.5, 6.46, 6.1], wood: [1.5, 6.4, 6.6], gutter: [9.8, 3.2, 3.66], eaves: [-3, 5.75, 3.3], deck: [-7, 1.05, 1.5], found: [-3.3, 0.33, 3.05], zone: [-2.5, 0.2, 3.7] };
+  const AT = { roof: [-2.8, 5.9, 3.6], windows: [-4.05, 4.4, 2.0], walls: [9.5, 1.4, 3.05], fence: [-4.85, 1.0, -4.08], attic: [1.5, 6.46, 6.1], wood: [1.5, 6.4, 6.6], gutter: [9.8, 3.2, 3.66], eaves: [-3, 5.75, 3.3], deck: [-7, 1.05, 1.5], found: [-3.3, 0.33, 3.05], zone: [-2.5, 0.2, 3.7] };
   const SHRUB = ['3f5f2c', '8a7a3c'];
-  const HIDE = { attic: (m) => true, gutter: (m) => true, found: (m) => true, zone: (m) => SHRUB.includes(m.material.color.getHexString()) };
+  const HIDE = { fence: (m) => true, attic: (m) => true, gutter: (m) => true, found: (m) => true, zone: (m) => SHRUB.includes(m.material.color.getHexString()) };
   const D = Object.keys(B).map((k) => ({ k, p: V(...AT[k]), g: null, gN: null, gU: null, up: false, near: false, hide: HIDE[k] ? (reg[k] || []).filter(HIDE[k]) : [] }));
   const build = (d, up) => { const g = new THREE.Group(); g.name = 'detail-' + d.k + (up ? '-up' : ''); seed = 11 + d.k.length * 101; UP = up; B[d.k](g); UP = false; g.visible = false; scene.add(g); return g; };
   const pickG = (d) => { const want = d.up ? d.gU : d.gN; if (d.g && d.g !== want) d.g.visible = false; d.g = want; if (d.g) d.g.visible = d.near; };
@@ -253,6 +324,7 @@ export function createDetails({ scene, reg, hgt, SMALL }) {
       }
     },
     // which sets show their upgraded version (side-by-side: called before each half is drawn); builds on demand
+    isNear(k) { const d = D.find((x) => x.k === k); return !!(d && d.near); },
     show(up) {
       for (const d of D) { d.up = !!(up && up.has(d.k)); if (d.near && !(d.up ? d.gU : d.gN)) { if (d.up) d.gU = build(d, true); else d.gN = build(d, false); } pickG(d); }
     },

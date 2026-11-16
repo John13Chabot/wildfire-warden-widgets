@@ -32,7 +32,7 @@ export const FUELFX = {
   struct: { freq: 1.6, speed: 1.5, hot: 0.86, w: 1.0, h: 1.0, smoke: [0.06, 0.055, 0.05], sd: 0.95, sz: 1.8, rise: 1.0, sparks: 1.5, smolder: 120, coals: 120 },
 };
 // house weak point -> fuel that is actually burning there
-export const HOUSE_FUEL = { zone: 'mulch', gutter: 'debris', attic: 'wood', found: 'wood', deck: 'wood', eaves: 'wood', wood: 'wood', atticSp: 'struct', crawl: 'wood', struct: 'struct' };
+export const HOUSE_FUEL = { zone: 'mulch', gutter: 'debris', attic: 'wood', found: 'wood', deck: 'wood', eaves: 'wood', wood: 'wood', roof: 'debris', windows: 'struct', walls: 'wood', fence: 'wood', garage: 'struct', atticSp: 'struct', crawl: 'wood', struct: 'struct' };
 // recorded cell flags -> fuel (bit0 crown fire, bits 2-3 fuel model GR2/SH7/TU5)
 export const cellFuel = (f) => ((f & 12) === 4 ? 'chap' : (f & 12) === 8 ? ((f & 1) ? 'oak' : 'litter') : 'grass');
 

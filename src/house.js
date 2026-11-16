@@ -34,6 +34,8 @@ export function buildHouse(house, reg, solids, opts) {
     shrub: std({ color: '#3f5f2c', roughness: 0.9 }), shrubDry: std({ color: '#8a7a3c', roughness: 0.95 }),
     bougLeaf: std({ color: '#2f5a26', roughness: 0.85 }), boug: std({ color: '#c42a6e', roughness: 0.7 }),
     cushion: std({ color: '#e9e2d0', roughness: 1 }),
+    fence: std({ map: T.woodGrain([120, 84, 52]), roughness: 0.9 }, 1.0), fenceFar: std({ map: T.woodGrain([120, 84, 52]), roughness: 0.9 }, 1.0),
+    steel: std({ color: '#2e2f30', roughness: 0.5, metalness: 0.7 }),
   };
   for (const k of ['glass', 'glassDim', 'lamp']) M[k].userData.noCast = true;
   const leaves = [M.leafA, M.leafB, M.leafC];
@@ -51,7 +53,7 @@ export function buildHouse(house, reg, solids, opts) {
     const g = lit ?? (litToggle++ % 3 !== 2);
     L(f, ring(w, h, 0.17, 0.1), M.cast);
     L(f, ring(w - 0.08, h - 0.04, 0.04, 0.05), M.bronze, null, 0, 0.0, 0.015);
-    L(f, archSolid(w - 0.08, h - 0.04, 0.02), g ? M.glass : M.glassDim, null, 0, 0, 0.005);
+    L(f, archSolid(w - 0.08, h - 0.04, 0.02), g ? M.glass : M.glassDim, 'windows', 0, 0, 0.005);
     const hr = h - w / 2;
     for (const x of [-w / 6, w / 6]) { const len = hr + Math.sqrt(Math.max(0, (w / 2) ** 2 - x * x)) - 0.06; L(f, new Box(0.035, len, 0.03), M.bronze, null, x, len / 2, 0.04); }
     for (const y of [hr / 3, (2 * hr) / 3, hr]) L(f, new Box(w - 0.08, 0.035, 0.03), M.bronze, null, 0, y, 0.04);
@@ -72,7 +74,7 @@ export function buildHouse(house, reg, solids, opts) {
   function carriageDoor(x, z) {
     const f = { x, y: 0, z };
     L(f, ring(2.0, 2.85, 0.2, 0.1), M.cast);
-    L(f, archSolid(2.0, 2.85, 0.08), M.wood, null, 0, 0, -0.03);
+    L(f, archSolid(2.0, 2.85, 0.08), M.wood, 'walls', 0, 0, -0.03);
     for (let k = -3; k <= 3; k++) L(f, new Box(0.02, 2.55, 0.02), M.dark, null, k * 0.26, 1.27, 0.05);
     L(f, new Box(0.035, 2.8, 0.03), M.dark, null, 0, 1.4, 0.06);
     for (const y of [0.45, 1.3, 2.0]) for (const s of [-1, 1]) L(f, new Box(0.7, 0.07, 0.025), M.iron, null, s * 0.58, y, 0.065);
@@ -134,6 +136,8 @@ export function buildHouse(house, reg, solids, opts) {
   win({ x: 5.1, y: 1.0, z: 3 }, 0.8, 2.0, { grille: true, lit: true });
   win({ x: -4, y: 3.6, z: -2.3, ry: -PI / 2 }, 1.0, 1.8);
   win({ x: -4, y: 3.6, z: 2.0, ry: -PI / 2 }, 1.0, 1.8, { lit: true });
+  // back wall (faces the uphill neighbour)
+  win({ x: -1.2, y: 1.2, z: -4, ry: PI }, 1.0, 1.7, { lit: false }); win({ x: 3.4, y: 1.2, z: -4, ry: PI }, 1.0, 1.7);
   box(1.8, 0.12, 0.5, M.cast, -2.5, 3.5, 3.25);
   for (const s of [-1, 1]) box(0.14, 0.28, 0.4, M.cast, -2.5 + s * 0.7, 3.3, 3.2);
   box(1.8, 0.045, 0.045, M.iron, -2.5, 4.25, 3.47);
@@ -203,6 +207,16 @@ export function buildHouse(house, reg, solids, opts) {
 
   // combustibles that Zone 0 clean-up removes (firewood, cushions, litter under the deck) and the bark mulch it replaces
   M.log.userData.z0 = true; M.cushion.userData.z0 = true; for (const m of leaves) m.userData.z0 = true; M.mulch.userData.mulch = true;
+  // ---------- wood side-yard fence attached at the back-west corner (gate within the first 5 ft) ----------
+  M.fence.userData.upHide = 'fence'; M.steel.userData.upShow = 'fence';
+  for (let x = -4.08; x > -11.6; x -= 0.155) {
+    const near = x > -5.6, y = Math.max(hgt(x, -4.0), hgt(x, -4.15)) - 0.05;
+    box(0.14, 1.85, 0.03, near ? M.fence : M.fenceFar, x, y + 0.925, -4.08, near ? 'fence' : null);
+    if (near) box(0.155, 1.85, 0.012, M.steel, x, y + 0.925, -4.08, 'fence');
+  }
+  for (let x = -4.1; x > -11.6; x -= 1.8) { const y = hgt(x, -4.12) - 0.3; box(0.1, 2.25, 0.1, x > -5.6 ? M.fence : M.fenceFar, x - 0.05, y + 1.12, -4.15, x > -5.6 ? 'fence' : null); }
+  for (const yy of [0.35, 1.5]) for (let x = -4.1; x > -11.5; x -= 0.9) { const near = x > -5.6, y = hgt(x - 0.45, -4.12); box(0.92, 0.08, 0.05, near ? M.fence : M.fenceFar, x - 0.45, y + yy, -4.13, near ? 'fence' : null); if (near) box(0.92, 0.05, 0.05, M.steel, x - 0.45, y + yy, -4.1, 'fence'); }
+
   // ---------- zone 0 (first 5 ft) ----------
   box(3, 0.06, 1.4, M.mulch, -2.5, 0.03, 3.72, 'zone'); box(2, 0.06, 1.4, M.mulch, 5, 0.03, 3.72, 'zone');
   box(1.5, 0.06, 1.25, M.mulch, -0.22, 0.03, 6.66, 'zone'); box(1.5, 0.06, 1.25, M.mulch, 3.22, 0.03, 6.66, 'zone');

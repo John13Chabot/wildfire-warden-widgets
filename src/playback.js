@@ -15,7 +15,7 @@ export function rec(w) {
     const t0 = br[i] / 10, x0 = br[i + 1] / 4, z0 = br[i + 2] / 4, x1 = br[i + 3] / 4, z1 = br[i + 4] / 4, d = Math.hypot(x1 - x0, z1 - z0);
     brands.push({ t0, x0, z0, x1, z1, d, dur: d / (({ calm: 8, windy: 20, santaana: 40 })[w] * 0.447 * 0.8) / 60, ign: br[i + 5] });
   }
-  const C = { ...r, g, arr, bur, fl, flag, brands, smokeA: b64(r.smoke, Uint8Array), combosA: b64(r.combos, Uint16Array) };
+  const C = { ...r, g, arr, bur, fl, flag, brands, smokeA: b64(r.smoke, Uint8Array) };
   // sampler: arrival (min), flaming duration (min), flame length (m), flags at world x,z
   C.at = (x, z) => {
     const j = Math.floor((x - g.x0) / g.cs), k = Math.floor((z - g.z0) / g.cs);
@@ -37,17 +37,24 @@ export function rec(w) {
   return (cache[w] = C);
 }
 
-// ---------- recorded house outcome for a set of upgrades ----------
+// ---------- house outcome: runtime risk model (risk.js) over the recorded exposures ----------
+import { evaluate, riskAsync } from './risk.js';
+const NAME = { attic: 'gable vents', wood: 'fascia and trim', gutter: 'gutter', eaves: 'open eaves', deck: 'deck', found: 'foundation vents', zone: 'plants and mulch', roof: 'roof edge', windows: 'windows', walls: 'garage doors', fence: 'wood fence' };
 const IGN = {
-  zone: { ember: 'Embers ignite mulch and plants against the house' },
+  zone: { ember: 'Embers ignite mulch and plants against the house', heat: 'Burning brush ignites the plants against the house' },
   gutter: { ember: 'Embers ignite leaves and needles in the gutter' },
   attic: { ember: 'Embers blow through the 1/4" gable vent screen' },
   found: { ember: 'Embers enter a foundation vent', zone: 'Burning mulch pushes fire into a foundation vent' },
-  deck: { ember: 'Embers lodge between deck boards and ignite', heat: 'Burning brush beside the deck ignites it' },
+  deck: { ember: 'Embers lodge between deck boards and ignite', heat: 'Burning brush beside the deck ignites it', neighbor: "Heat and embers from the neighbor's burning house ignite the deck" },
   eaves: { ember: 'Embers collect in the open eaves and ignite', heat: 'Heat from nearby flames ignites the open eaves' },
   wood: { heat: 'Flames and heat ignite exposed fascia and trim' },
+  roof: { ember: 'Embers blow in under the open ends of the roof tiles' },
+  windows: { heat: 'Radiant heat breaks a single-pane window', neighbor: "Heat from the neighbor's burning house breaks a window", zone: 'Burning plants under the window break the glass', deck: 'The burning deck breaks a window', fence: 'The burning fence breaks a window' },
+  walls: { ember: 'Embers blow through the gaps around the garage doors', heat: 'Heat ignites the wood garage doors', zone: 'Burning plants ignite the garage doors' },
+  fence: { ember: 'Embers ignite the wood fence where it meets the house', heat: 'Burning brush ignites the wood fence' },
   atticSp: { any: 'Attic fire, hidden from view' },
   crawl: { any: 'Fire in the crawl space under the floor' },
+  garage: { any: 'Fire inside the garage' },
   struct: { any: 'Fire spreads through the house' },
 };
 const STOP = {
@@ -58,20 +65,29 @@ const STOP = {
   deck: 'DeckGuard: the deck boards resist ignition',
   eaves: 'Boxed eaves: no pockets to trap heat and embers',
   wood: 'Coated wood resists the flames',
+  roof: 'Bird stops seal the open tile ends',
+  windows: 'Dual-pane tempered glass holds',
+  walls: 'Sealed, ignition-resistant garage doors',
+  fence: 'Metal fence section: nothing to burn at the wall',
 };
-export function recordedOutcome(up, w, EXT) {
-  const C = rec(w), K = C.keys;
-  let mask = 0; EXT.forEach((k, b) => { if (up.has(k)) mask |= 1 << b; });
-  const ign = {}, stop = {}, ember = {};
-  K.forEach((k, j) => { const o = (mask * K.length + j) * 2; if (C.combosA[o] !== 65535) ign[k] = C.combosA[o] / 10; if (C.combosA[o + 1] !== 65535) stop[k] = C.combosA[o + 1] / 10; });
-  // ember-glow cue for components reached by embers
-  const base = C.combosA; K.forEach((k, j) => { if (C.causes[k] === 'ember') { const t = ign[k] ?? stop[k]; if (t != null) ember[k] = t; } });
-  const ev = [];
-  for (const k in ign) { const m = IGN[k]; const c = C.causes[k]; const text = m.any || m[c] || (k === 'found' && ign.zone != null && ign.zone < ign.found ? m.zone : null) || m.ember || m.heat; ev.push({ k, t: ign[k], kind: 'ign', text }); }
-  for (const k in stop) ev.push({ k, t: stop[k], kind: 'stop', text: STOP[k] });
+const NNAME = { W: "Downhill neighbor's house catches fire", N: "Uphill neighbor's house catches fire" };
+export function houseOutcome(up, w, { cov = 0.6, nb = true } = {}) {
+  const { central } = evaluate(up, w, { cov, nb, mc: false });
+  const { ign, stop, cause, tN } = central, ember = {}, ev = [];
+  const tS = ign.struct ?? Infinity;
+  for (const k in ign) {
+    if (ign[k] > tS + 5 && k !== 'struct') continue;   // after the house is fully involved the rest is moot
+    const m = IGN[k] || {}, c = cause[k];
+    const text = m.any || m[c] || (c === 'neighbor' ? "Heat and embers from the neighbor's burning house ignite the " + NAME[k] : null) || (c === 'neighbor' && m.heat) || (NAME[c] && m.heat) || m.ember || m.heat || 'Fire reaches the ' + (NAME[k] || k);
+    ev.push({ k, t: ign[k], kind: 'ign', text });
+    if (c === 'ember') ember[k] = ign[k];
+  }
+  for (const k in stop) if (ign[k] == null && STOP[k]) { ev.push({ k, t: stop[k], kind: 'stop', text: STOP[k] }); ember[k] = stop[k]; }
+  ['W', 'N'].forEach((id, i) => { if (tN[i] < Infinity) ev.push({ k: 'n' + id, t: tN[i], kind: 'nbr', text: NNAME[id] }); });
   ev.sort((a, b) => a.t - b.t);
-  return { ign, stop, ember, ev, lost: ign.struct != null };
+  return { ign, stop, ember, ev, lost: ign.struct != null, tN, up, cov, nb };
 }
+export { riskAsync };
 
 // ---------- recording timeline -> playback seconds and phases ----------
 export const PLAY_END = 50;

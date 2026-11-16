@@ -7,7 +7,7 @@
   <div class="wwh3-msg">Loading 3D model…</div>
   <div class="wwh3-pins"></div>
   <div class="wwh3f-labels" aria-hidden="true"></div>
-  <div class="wwh3f-side l"><span>Typical home</span></div><div class="wwh3f-side r"><span>With your upgrades</span></div>
+  <div class="wwh3f-side l"><span>Typical home</span><em class="wwh3f-risk" data-s="0"></em></div><div class="wwh3f-side r"><span>With your upgrades</span><em class="wwh3f-risk" data-s="1"></em></div>
   <div class="wwh3f-phase" aria-live="polite"></div>
   <button type="button" class="wwh3f-go">&#9654; Start the fire</button>
 </div>
@@ -18,9 +18,19 @@
 </div>
 <div class="wwh3f-ctl">
   <div class="wwh3f-grp"><p class="wwh3-label">Start from</p><div class="wwh3f-presets"></div></div>
-  <div class="wwh3f-grp wide"><p class="wwh3-label">Upgrades on the right-hand house</p><div class="wwh3f-ups"></div></div>
+  <div class="wwh3f-grp wide"><p class="wwh3-label">Upgrades on the right-hand house</p><div class="wwh3f-ups"></div>
+    <label class="wwh3f-cov"><span>Zone 0 plants &amp; mulch on the right-hand house</span><input type="range" min="0" max="100" step="5" value="60"><b>60%</b></label></div>
   <div class="wwh3f-grp"><p class="wwh3-label">Wind</p><div class="wwh3f-wind" role="radiogroup" aria-label="Wind"></div>
-    <label class="wwh3f-cmp"><input type="checkbox" checked> Side-by-side comparison</label></div>
+    <label class="wwh3f-cmp"><input type="checkbox" checked> Side-by-side comparison</label>
+    <label class="wwh3f-cmp wwh3f-nb"><input type="checkbox" checked> Neighbor homes 20&ndash;30 ft away</label></div>
 </div>
 <div class="wwh3f-res" hidden></div>
+<details class="wwh3f-meth"><summary>How this simulation works &amp; sources</summary><div>
+<p><b>The fire.</b> The landscape fire is a recording of a real fire-spread simulation run once offline: Rothermel surface spread with Anderson fire shapes on a 2 m grid, crown fire in the trees, and ember spotting, for three weather settings (8, 20 and 40 mph winds at 20 ft, with matching fuel moisture). Every flame, ember flight and spot fire you see comes from that recording.</p>
+<p><b>The house.</b> The recording stores ember dose, radiant heat and flame contact at 60 points on and around the house and the two neighbors. Each weak point ignites when the embers landing on it, or the heat it receives, cross its threshold; fire then spreads inside the house along known paths (vents to attic, windows to rooms, garage to house). Upgrades change those thresholds the way lab tests show: fine mesh keeps embers out, tempered glass holds to far higher heat, bird stops close tile ends, a noncombustible fence section and a clear Zone 0 leave nothing to ignite at the wall.</p>
+<p><b>Neighbors.</b> The two neighbor homes are typical, unhardened houses. When one ignites it becomes a large source of radiant heat and embers for about an hour, which is how most homes are lost in suburban wildfires.</p>
+<p><b>The percentage.</b> Real fires vary. The chance of serious damage or loss comes from 1,000 versions of the same fire with ember thresholds, heat thresholds, spread paths and neighbor timing varied within published uncertainty; the range shows how much that estimate itself could move. The play-through shows the most typical of those runs. Thresholds were calibrated so the model reproduces published field results: homes with 25% or more fuel in Zone 0 were damaged or destroyed 87&ndash;100% of the time, and hardening helps most when homes are about 20 ft or more from a burning neighbor (IBHS, 2025 LA Conflagrations).</p>
+<p><b>Limits.</b> Illustrative, not a prediction for any property. One house design, one terrain, two neighbors; weather is held steady; construction quality and maintenance are not modeled.</p>
+<p><b>Sources.</b> IBHS, <i>The 2025 LA Conflagrations</i> and <i>Vegetation in Zone 0</i> (2025); IBHS, <i>Near-Building Noncombustible Zone</i> research; NIST WUI fire studies; Rothermel (1972) and Albini spotting models; Mowrer (NIST GCR) and FSRI window radiant-heat tests; UC ANR Fire Network building-material guidance; California Board of Forestry Zone 0 rulemaking (AB 3074).</p>
+</div></details>
 <p class="wwh3f-disc">Illustrative simulation. It shows the common ways homes ignite during a wildfire, based on published post-fire studies and full-scale testing. It is not a prediction for any specific property. Real outcomes depend on fire behavior, construction, maintenance and defensible space.</p>

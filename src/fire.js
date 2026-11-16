@@ -2,14 +2,16 @@ import * as THREE from 'three';
 import * as T from './tex.js';
 import { flameShaders } from './fireshader.js';
 import { FUELFX, HOUSE_FUEL, styleFlame } from './fuelfx.js';
-import { rec, recordedOutcome, createEnvFX, timeline } from './playback.js';
+import { rec, houseOutcome, createEnvFX, timeline } from './playback.js';
+import { nburn } from './neighbors.js';
+import { EXT as XT, INNER as IN } from './risk.js';
 
 // ---------------------------------------------------------------------------
 // Recorded wildfire (tools/bake.mjs): Rothermel spread + ember spotting + house exposure,
 // baked once for every wind setting and every combination of upgrades. The page only plays it back.
 // ---------------------------------------------------------------------------
-export const EXT = ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']; // map order 1–7
-export const INNER = ['atticSp', 'crawl', 'struct'];
+export const EXT = XT;   // map order 1–11
+export const INNER = IN;
 export const WIND = { calm: { f: 0.6, n: 'Light wind' }, windy: { f: 1, n: 'Windy' }, santaana: { f: 1.5, n: 'Santa Ana' } };
 export { PLAY_END, timeline } from './playback.js';
 
@@ -21,8 +23,12 @@ export const UPG = {
   deck: { n: 'Deck', fix: 'DeckGuard fire-resistant coating', svc: 'deckguard' },
   found: { n: 'Foundation & crawl space vents', fix: 'Ember-resistant vent mesh or Brandguard vents', svc: 'vents' },
   zone: { n: 'Zone 0: the first 5 feet', fix: 'Zone 0 clean-up + Phos-Chek FORTIFY', svc: 'fortify' },
+  roof: { n: 'Roof edge: open tile ends', fix: 'Bird stops / eave closures at the tile edge', svc: null },
+  windows: { n: 'Windows', fix: 'Dual-pane tempered glass (or shutters)', svc: null },
+  walls: { n: 'Garage doors & gaps', fix: 'Weather-seal gaps + ignition-resistant garage doors', svc: null },
+  fence: { n: 'Wood fence at the house', fix: 'Noncombustible fence and gate within 5 ft of the house', svc: null },
 };
-export function simulate(up, wind) { return recordedOutcome(up, wind, EXT); }
+export function simulate(up, wind, opts) { return houseOutcome(up, wind, opts); }
 
 // ---------------------------------------------------------------------------
 // Visual effects (one shared scene, per-side state applied before each render)
@@ -38,11 +44,16 @@ export const EMIT = {
   wood: [[-0.8, 6.1, 6.7], [-2.6, 6.0, 6.6], [3.2, 6.0, 6.6], [4.6, 5.9, 6.4]],
   atticSp: [[1.5, 8.6, 3.2], [-1.2, 8.4, 2.4], [3.6, 8.2, 1.6]],
   crawl: [[-3.3, 0.6, 3.3], [0.8, 0.6, 3.3]],
+  roof: [[-2, 5.95, 3.7], [4, 5.95, 3.7], [9.8, 3.2, 3.85]],
+  windows: [[-4.25, 4.5, 2.0], [-4.25, 4.5, -2.3], [-2.5, 2.0, 3.2], [3.4, 2.1, -4.25]],
+  walls: [[7.3, 1.5, 3.25], [9.5, 1.5, 3.25], [11.7, 1.5, 3.25]],
+  fence: [[-4.5, 1.3, -4.1], [-5.3, 1.1, -4.1], [-6.4, 0.7, -4.1]],
+  garage: [[8.3, 2.4, 0.8], [10.8, 2.4, -1.2]],
   struct: [[-3, 9.5, 1], [1, 10.2, 0], [4.5, 9.5, 0], [8.5, 6, 0.5], [10.5, 6, -1.5], [-0.5, 7.6, 5.2], [2.5, 7.6, 5.2], [-2.6, 2.2, 6.3], [1.8, 2.2, 6.3], [4.2, 4.6, 6.3], [7.5, 4.4, 3.6], [10.4, 4.4, 3.6]],
 };
-const SCALE = { zone: 1.8, gutter: 1.3, attic: 1.1, found: 1.0, deck: 2.4, eaves: 1.7, wood: 1.8, atticSp: 3.4, crawl: 1.5, struct: 5.5 };
+const SCALE = { roof: 1.2, windows: 1.4, walls: 1.6, fence: 1.5, garage: 2.6, zone: 1.8, gutter: 1.3, attic: 1.1, found: 1.0, deck: 2.4, eaves: 1.7, wood: 1.8, atticSp: 3.4, crawl: 1.5, struct: 5.5 };
 
-export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn = null }) {
+export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn = null, NB = [] }) {
   const G = new THREE.Group(); G.name = 'fireFX'; scene.add(G);
   const SH = flameShaders(SMALL), gT = T.glowSprite();
   const glowMat = new THREE.SpriteMaterial({ map: gT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: new THREE.Color(0.9, 0.42, 0.12), opacity: 0.55 });
@@ -79,6 +90,14 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
   sparks.frustumCulled = false; G.add(sparks);
   const spSeed = Array.from({ length: SPN }, (_, i) => [Math.sin(i * 12.9898) * 43758.5453 % 1, Math.sin(i * 78.233) * 12543.21 % 1, Math.sin(i * 39.425) * 9631.7 % 1].map(Math.abs));
   // charred-material bookkeeping
+  // burning neighbours: window flames, roof/structure flames, heavy smoke, glowing windows, char
+  const NFX = NB.map((nh, i) => {
+    const mk = (p, sd) => { const f = SH.flame(sd); f.visible = false; G.add(f); return { f, p }; };
+    const win = nh.winPts.filter((_, j) => j % (SMALL ? 2 : 1) === 0).map((p, j) => mk(p, 200 + i * 40 + j * 1.7));
+    const roof = nh.roofPts.flatMap((p, j) => [mk(p, 300 + i * 40 + j * 2.3), mk([p[0] + 0.8, p[1], p[2] - 0.6], 340 + i * 40 + j * 1.9)]);
+    const smk = [0, 1, 2].map((j) => { const sm = SH.smoke(400 + i * 9 + j * 3.3); sm.visible = false; G.add(sm); return sm; });
+    return { nh, win, roof, smk };
+  });
   const DARK = new THREE.Color(0x2b2018), ORANGE = new THREE.Color(0xff5a00);
   const SMOKE_LT = new THREE.Color(0.42, 0.39, 0.36), SMOKE_BK = new THREE.Color(0.08, 0.07, 0.065);
   const mats = {};
@@ -106,6 +125,19 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
     // apply one side's state to the shared scene
     apply(S, m) {
       const lean = leanOf(), ln = Math.min(1, lean);
+      NFX.forEach((N, i) => {
+        const a = S.tN && S.nb !== false ? m - S.tN[i] : -1, B = nburn(a), nh = N.nh;
+        for (const mt of nh.mats) mt.color.copy(mt.userData.c0).lerp(DARK, B.char * 0.8);
+        nh.M.glass.emissive.set(0xff6a1a); nh.M.glass.emissiveIntensity = 0.08 + 2.2 * Math.max(B.win, B.full * 0.6) * (0.8 + 0.2 * Math.sin(t * 9 + i));
+        for (const r of nh.roofParts) r.visible = !B.collapsed;
+        const fxS = B.full > 0.3 ? FUELFX.struct : FUELFX.wood;
+        N.win.forEach((c, j) => { const on = B.win > 0.05 && j / N.win.length < B.win + 0.15; c.f.visible = on; if (!on) return;
+          const sc = 1.6 + 1.6 * B.win; c.f.position.set(c.p[0], c.p[1] + 0.4, c.p[2]); c.f.scale.set(sc * 0.9 * (1 + 0.3 * ln), sc * 1.5, 1); c.f.material.uniforms.uI.value = 0.7 + 0.4 * B.win; c.f.material.uniforms.uLean.value = lean; styleFlame(c.f, fxS); });
+        N.roof.forEach((c, j) => { const lv = Math.max(B.roof * 0.6, B.full); const on = lv > 0.05 && (j % 2 === 0 || B.full > 0.4); c.f.visible = on; if (!on) return;
+          const sc = 2.2 + 5.5 * lv, y = c.p[1] - (B.collapsed ? nh.rise + 1.2 : 0); c.f.position.set(c.p[0], y + sc * 0.2, c.p[2]); c.f.scale.set(sc * 1.1 * (1 + 0.35 * ln), sc * 1.9 * (1 - 0.15 * ln), 1); c.f.material.uniforms.uI.value = 0.6 + 0.6 * lv; c.f.material.uniforms.uLean.value = lean; styleFlame(c.f, fxS); });
+        N.smk.forEach((sm, j) => { sm.visible = B.smoke > 0.02; if (!sm.visible) return; const u = RM ? 0.5 : (t * 0.12 + j * 0.33) % 1; const ss = (4 + 8 * B.full + 2 * B.roof) * (1 + u * 1.8);
+          sm.position.set(nh.cx + u * (4 + 14 * lean), nh.y0 + nh.H + 3 + u * (10 + 6 * B.full), nh.cz + (j - 1) * 2); sm.scale.set(ss, ss, 1); sm.material.uniforms.uCol.value.setRGB(0.08 + 0.2 * (1 - B.full), 0.07 + 0.18 * (1 - B.full), 0.065 + 0.16 * (1 - B.full)); sm.material.uniforms.uI.value = Math.min(1, B.smoke) * (0.5 + 0.5 * (1 - u)); });
+      });
       for (const k of EXT) {
         const b = lvl(S, k, m), ch = S.ign[k] == null ? 0 : Math.min(1, Math.max(0, (m - S.ign[k]) / 40));
         for (const mt of mats[k]) {
@@ -194,6 +226,6 @@ export function createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES = [], burn =
       return { smoke, grey, gust, emberLevel: e * wf * 0.6, glow: fl * smoke * 1.3 };
     },
     reset() { if (D) D.reset(); for (const k of EXT) for (const mt of mats[k]) { mt.color.copy(mt.userData.c0); mt.emissive.copy(mt.userData.e0); mt.emissiveIntensity = mt.userData.i0; } },
-    EMIT,
+    EMIT, LAB: Object.fromEntries(NB.map((nh) => ['n' + nh.n.id, [[nh.cx, nh.y0 + nh.H + nh.rise + 1, nh.cz]]])),
   };
 }

@@ -9,12 +9,14 @@ import { initServices } from './ui-s.js';
 import cssF from './ui-f.css';
 import htmlF from './ui-f.html';
 import { initFire } from './ui-f.js';
-import { createFireFX, WIND, simulate, EMIT } from './fire.js';
+import { createFireFX, WIND, simulate, EMIT, EXT } from './fire.js';
 import { rec } from './playback.js';
 import { createStoryUI } from './clipui.js';
 import { STORY, BEATS } from './story.js';
 import { createEmbers } from './embers.js';
 import { createDetails } from './detail.js';
+import { buildNeighbors } from './neighbors.js';
+import { setPadHeights } from './risk.js';
 import { SOFT } from './fireshader.js';
 import { buildWorld, hgt } from './world.js';
 import { buildHouse } from './house.js';
@@ -24,7 +26,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.8.4';
+const VERSION = '4.9.0';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
@@ -108,6 +110,7 @@ async function start(root, api) {
   const fx = [embers];
   // ---------- fire-test mode: shared FX + a second sketch pipeline for side-by-side ----------
   const FM = MODE === 'f';
+  let NB = null;
   let D = null, F = null, sketch2 = null, fxScene = null, clip = null, story = null, EMB = null;
   const SUN0 = sun.color.clone(), SUNI = sun.intensity, HS0 = hemi.color.clone(), HG0 = hemi.groundColor.clone(), HI = hemi.intensity;
   const SMOKY = new THREE.Color(1, 0.5, 0.24), GREYL = new THREE.Color(0.78, 0.76, 0.74), atmo = { tint: new THREE.Color(), tintK: 0, haze: new THREE.Color(), hazeK: 0, shim: SMALL ? 0 : 1, time: 0 };
@@ -116,7 +119,7 @@ async function start(root, api) {
   function ensureFX() {
     if (F) return;
     D = createDamage({ scene, M: HM, tiles, SMALL });
-    F = createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES: WB.TREES, burn: WB.burn });
+    F = createFireFX({ scene, reg, hgt, RM, SMALL, D, TREES: WB.TREES, burn: WB.burn, NB: NB || [] });
     sketch2 = createSketch(r); fxScene = new THREE.Scene();
     fxScene.userData.soft = (d, w, h, c) => { SOFT.tSD.value = d; SOFT.uSRes.value.set(w, h); SOFT.uSNear.value = c.near; SOFT.uSFar.value = c.far; };
     scene.remove(F.group); fxScene.add(F.group);
@@ -133,8 +136,15 @@ async function start(root, api) {
       eaves: { t: [-3, 5.72, 3.25], az: -0.25, el: -0.42, d: 3.8 }, deck: { t: [-6.4, 1.05, 2.2], az: -0.8, el: 0.6, d: 5.0 }, found: { t: [-3.3, 0.35, 3.1], az: -0.12, el: 0.18, d: 2.6 }, zone: { t: [-2.4, 0.3, 3.8], az: 0.12, el: 0.5, d: 4.2 } };
     for (const h of H) if (CU[h.k]) h.v = CU[h.k];
     H.find((h) => h.k === 'eaves').p = [-3, 5.68, 3.55];
+    if (FM) {
+      H.push({ k: 'roof', p: [-2.9, 5.9, 3.65], v: { t: [-2.9, 5.92, 3.6], az: -0.4, el: -0.1, d: 1.9 } },
+        { k: 'windows', p: [-4.05, 4.4, 2.0], v: { t: [-4.1, 4.3, 2.0], az: -1.35, el: 0.08, d: 3.6 } },
+        { k: 'walls', p: [9.5, 1.4, 3.1], v: { t: [9.6, 1.3, 3.1], az: 0.08, el: 0.1, d: 3.4 } },
+        { k: 'fence', p: [-4.6, 1.0, -4.1], v: { t: [-5.0, 0.95, -4.1], az: -2.35, el: 0.22, d: 4.4 } });
+    }
     if (FM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
   }
+  if (FM) { setPadHeights(hgt); NB = buildNeighbors(scene, { hgt, solids }); }
   if (FM) { ensureFX(); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
   const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
   let camUser = false, camShot = null, fRun = false, autoK = null;
@@ -206,7 +216,7 @@ async function start(root, api) {
     if (!DET) return;
     DET.show(up);
     const st = FM && api.fire && api.fire.st;
-    for (const k of ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']) {
+    for (const k of EXT) {
       if (!st || !st.ran || !S || !S.ign) { DET.burn(k, 0, 0, detT); continue; }
       const T0 = st.T, sa = S.ign.struct != null ? T0 - S.ign.struct : -1, a = S.ign[k] != null ? T0 - S.ign[k] : -1;
       const ch = Math.max(a < 0 ? 0 : Math.min(1, a / (k === 'gutter' || k === 'zone' ? 4 : 12)), sa < 0 ? 0 : Math.min(1, sa / 40));
@@ -218,23 +228,29 @@ async function start(root, api) {
   // bark mulch becomes gravel (per drawn house, so the side-by-side shows both)
   const Z0 = { hide: [...(WB.z0 || []), ...(reg.zone || []).filter((m) => !m.material.userData.mulch), ...(reg.deck || []).filter((m) => m.material.userData.z0)], mulch: (reg.zone || []).filter((m) => m.material.userData.mulch) };
   for (const m of Z0.mulch) { m.userData.m0 = m.material; const g = m.material.clone(); g.map = T.noiseGray(128, 48, 3); g.color.set('#9b978e'); g.userData = { ...m.material.userData }; m.userData.mG = g; }
+  // other upgrades with a visible change on the coarse model (e.g. fence: wood section -> metal section)
+  const UPV = []; for (const k in reg) for (const m of reg[k]) { const u = m.material.userData; if (u.upHide) UPV.push([m, u.upHide, false]); if (u.upShow) { UPV.push([m, u.upShow, true]); m.visible = false; } }
+  // Zone 0 coverage on a non-cleared house: show that share of the plants and mulch
+  const covKeep = (m, i, cov) => ((i * 0.618 + 0.13) % 1) < cov / 0.6;
   let z0Base = null;
-  function z0For(up) {
+  function z0For(up, cov = 0.6) {
     const on = !!(up && up.has('zone'));
     if (!z0Base) z0Base = Z0.hide.map((m) => m.visible);
-    Z0.hide.forEach((m, i) => (m.visible = z0Base[i] && !on));
+    Z0.hide.forEach((m, i) => (m.visible = z0Base[i] && !on && (i < (WB.z0 || []).length ? cov > 0.02 : covKeep(m, i, cov))));
     for (const m of Z0.mulch) m.material = on ? m.userData.mG : m.userData.m0;
+    for (const [m, k, show] of UPV) m.visible = !!(up && up.has(k)) === show && !(DET && DET.isNear(k));
   }
-  const z0Done = () => { if (z0Base) Z0.hide.forEach((m, i) => (m.visible = z0Base[i])); z0Base = null; };
+  const z0Done = () => { if (z0Base) Z0.hide.forEach((m, i) => (m.visible = z0Base[i])); z0Base = null; for (const [m, k, show] of UPV) m.visible = !show && !(DET && DET.isNear(k)); };
   const split = () => ((FM && api.fire.st.cmp) ? (W / Hh < 0.95 ? 'v' : 'h') : null);
   const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
   const draw = () => {
     if (story && story.S) { F.apply(story.S, story.T); sketch.render(scene, cam, fx, fxScene); return; }
     if (!FM) { detFor(null, null); sketch.render(scene, cam, fx); return; }
     const st = api.fire.st, hv = halves();
-    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); z0For(st.up); sketch.render(scene, cam, fx, fxScene); z0Done(); return; }
+    if (NB) for (const nh of NB) nh.g.visible = st.nb !== false;
+    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); z0For(st.up, st.cov); sketch.render(scene, cam, fx, fxScene); z0Done(); return; }
     r.setScissorTest(true);
-    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); z0For(s ? st.up : null); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
+    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); z0For(s ? st.up : null, s ? st.cov : 0.6); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
     z0Done(); r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
   };
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
@@ -372,7 +388,7 @@ async function start(root, api) {
     if (FM) {
       const hv = halves();
       api.fire.labels((s, k) => {
-        const rc = hv[s]; if (!rc) return null; const p = F.EMIT[k] && F.EMIT[k][0]; if (!p) return null;
+        const rc = hv[s]; if (!rc) return null; const p = (F.EMIT[k] && F.EMIT[k][0]) || (F.LAB[k] && F.LAB[k][0]); if (!p) return null;
         tmp.set(p[0], p[1], p[2]).project(cam); if (tmp.z > 1) return null;
         const x = rc[0] + ((tmp.x + 1) / 2) * rc[2], y = (Hh - rc[1] - rc[3]) + ((1 - tmp.y) / 2) * rc[3];
         return x < rc[0] || x > rc[0] + rc[2] || y < Hh - rc[1] - rc[3] || y > Hh - rc[1] ? null : [x, y];

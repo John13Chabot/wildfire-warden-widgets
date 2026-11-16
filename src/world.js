@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Builder, std, segment } from './build.js';
 import * as T from './tex.js';
 import { FUELFX, cellFuel } from './fuelfx.js';
+import { NEIGH, YARD } from './site.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -10,8 +11,20 @@ let CTR = false;
 const smooth = (v) => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v));
 
 // ---------- terrain height ----------
-export function offPad(x, z) { return Math.max(-5 - x, -9.3 - z, z - 14, x - 17, 0); }
+const ownPad = (x, z) => Math.max(-5 - x, -9.3 - z, z - 14, x - 17, 0);
+const nOff = (n, x, z, m = YARD) => Math.max(n.x0 - m - x, x - n.x1 - m, n.z0 - m - z, z - n.z1 - m, 0);
+export function offPad(x, z) { let o = ownPad(x, z); for (const n of NEIGH) o = Math.min(o, nOff(n, x, z)); return o; }
+// neighbour lots are levelled pads cut into the slope
+const padY = new Map();
 export function hgt(x, z) {
+  let y = hgt0(x, z);
+  for (const n of NEIGH) {
+    if (!padY.has(n.id)) padY.set(n.id, hgt0((n.x0 + n.x1) / 2, (n.z0 + n.z1) / 2));
+    const d = nOff(n, x, z, 1); if (d < 3) y += (padY.get(n.id) - y) * smooth(1 - d / 3) * smooth(ownPad(x, z) / 1.5);
+  }
+  return y;
+}
+function hgt0(x, z) {
   let y = 0;
   const dl = -5 - x, db = -9.3 - z, df = z - 14, dr = x - 17;
   if (dl > 0) y -= Math.min(dl, 20) * 0.5 - Math.max(0, dl - 20) * 0.05;
@@ -19,7 +32,7 @@ export function hgt(x, z) {
   if (df > 0) y -= df * 0.1;
   if (dr > 0) y += dr * 0.16;
   if (z < -34) y += (-34 - z) * 0.55 * (0.6 + 0.6 * T.fbm(x * 0.02 + 3, z * 0.02, 3));
-  const o = offPad(x, z);
+  const o = ownPad(x, z);
   return y + (T.fbm(x * 0.06 + 10, z * 0.06, 4) - 0.5) * 3.2 * smooth(o / 6) + (T.vnoise(x * 0.4, z * 0.4) - 0.5) * 0.25 * smooth(o / 3);
 }
 
@@ -161,9 +174,11 @@ export function buildWorld(scene, { small, fire = false }) {
 
   T.reseed(4242);
   oak(15.8, -5.6, 1.15, { lift: 1.4, limbs: 6, spread: 1.15 });
-  oak(-9.5, 13, 1.0, { limbs: 5 }); oak(-18, -11, 1.3); oak(23, -4, 1.1); oak(6, -17, 1.25); oak(27, 15, 1.0); oak(-31, 19, 1.15); oak(-26, -2, 1.2);
+  // trees that stood where the north neighbour's house is are built (to keep the random sequence) and then dropped
+  const drop = (fn) => { const L = [near.can.length, near.oakW.length, near.eucW.length, TREES.length]; fn(); near.can.length = L[0]; near.oakW.length = L[1]; near.eucW.length = L[2]; TREES.length = L[3]; };
+  oak(-9.5, 13, 1.0, { limbs: 5 }); oak(-18, -11, 1.3); oak(23, -4, 1.1); drop(() => oak(6, -17, 1.25)); oak(27, 15, 1.0); oak(-31, 19, 1.15); oak(-26, -2, 1.2);
   oak(-7.6, 9.8, 0.42, { leaf: '#808f6c', limbs: 4, blob: 0.7 });
-  for (const [x, z, s] of [[-3, -16, 1], [1.5, -20, 1.15], [-7.5, -21, 1.05], [11, -21, 1.1], [16, -16, 0.95], [-20, -16, 1.1], [-22, -7, 1.2], [-13, -15, 1], [27, -15, 1.05], [-36, 2, 1.2], [34, -6, 1.1]]) euc(x, z, s);
+  for (const [x, z, s] of [[-3, -16, 1], [1.5, -20, 1.15], [-7.5, -21, 1.05], [11, -21, 1.1], [16, -16, 0.95], [-20, -16, 1.1], [-22, -7, 1.2], [-13, -15, 1], [27, -15, 1.05], [-36, 2, 1.2], [34, -6, 1.1]]) { if (x === 1.5 && z === -20) drop(() => euc(x, z, s)); else euc(x, z, s); }
   cypress(14.7, 3.8, 1); cypress(14.7, -1.6, 0.9); cypress(-5.6, -6.6, 0.85);
 
   // Zone 0 (5 ft / 1.52 m around the house): crowns, limbs and whole small trees inside it go into their own meshes,
