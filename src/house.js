@@ -201,6 +201,8 @@ export function buildHouse(house, reg, solids, opts) {
   for (let row = 0; row < 4; row++) for (let j = 0; j < 5 - row; j++) B.add(new Cyl(0.12, 0.12, 1.0, 9), M.log, 'deck', -6.9 + j * 0.25 + row * 0.12, wy + 0.13 + row * 0.21, 1.4, PI / 2, 0, 0);
   for (let i = 0; i < 40; i++) { const x = -9.6 + T.rnd() * 5.4, z = -2.8 + T.rnd() * 5.6; B.add(new Sph(0.1, 6, 4), leaves[i % 3], 'deck', x, hgt(x, z) + 0.03, z, 0, T.rnd() * 3, 0, 'XYZ', 1.8, 0.25, 1); }
 
+  // combustibles that Zone 0 clean-up removes (firewood, cushions, litter under the deck) and the bark mulch it replaces
+  M.log.userData.z0 = true; M.cushion.userData.z0 = true; for (const m of leaves) m.userData.z0 = true; M.mulch.userData.mulch = true;
   // ---------- zone 0 (first 5 ft) ----------
   box(3, 0.06, 1.4, M.mulch, -2.5, 0.03, 3.72, 'zone'); box(2, 0.06, 1.4, M.mulch, 5, 0.03, 3.72, 'zone');
   box(1.5, 0.06, 1.25, M.mulch, -0.22, 0.03, 6.66, 'zone'); box(1.5, 0.06, 1.25, M.mulch, 3.22, 0.03, 6.66, 'zone');

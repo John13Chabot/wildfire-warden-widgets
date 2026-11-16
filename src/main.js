@@ -24,7 +24,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.8.3';
+const VERSION = '4.8.4';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
@@ -214,19 +214,31 @@ async function start(root, api) {
       DET.burn(k, ch, Math.max(glow, sa > 0 ? 0.6 : 0), detT);
     }
   }
+  // Zone 0 on a hardened house: nothing combustible within 5 ft. Shrubs, vines, trellis, firewood, cushions and litter go,
+  // bark mulch becomes gravel (per drawn house, so the side-by-side shows both)
+  const Z0 = { hide: [...(WB.z0 || []), ...(reg.zone || []).filter((m) => !m.material.userData.mulch), ...(reg.deck || []).filter((m) => m.material.userData.z0)], mulch: (reg.zone || []).filter((m) => m.material.userData.mulch) };
+  for (const m of Z0.mulch) { m.userData.m0 = m.material; const g = m.material.clone(); g.map = T.noiseGray(128, 48, 3); g.color.set('#9b978e'); g.userData = { ...m.material.userData }; m.userData.mG = g; }
+  let z0Base = null;
+  function z0For(up) {
+    const on = !!(up && up.has('zone'));
+    if (!z0Base) z0Base = Z0.hide.map((m) => m.visible);
+    Z0.hide.forEach((m, i) => (m.visible = z0Base[i] && !on));
+    for (const m of Z0.mulch) m.material = on ? m.userData.mG : m.userData.m0;
+  }
+  const z0Done = () => { if (z0Base) Z0.hide.forEach((m, i) => (m.visible = z0Base[i])); z0Base = null; };
   const split = () => ((FM && api.fire.st.cmp) ? (W / Hh < 0.95 ? 'v' : 'h') : null);
   const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
   const draw = () => {
     if (story && story.S) { F.apply(story.S, story.T); sketch.render(scene, cam, fx, fxScene); return; }
     if (!FM) { detFor(null, null); sketch.render(scene, cam, fx); return; }
     const st = api.fire.st, hv = halves();
-    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); sketch.render(scene, cam, fx, fxScene); return; }
+    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); z0For(st.up); sketch.render(scene, cam, fx, fxScene); z0Done(); return; }
     r.setScissorTest(true);
-    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
-    r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
+    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); z0For(s ? st.up : null); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
+    z0Done(); r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
   };
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
-  window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, go, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
+  window.__wwh3 = { scene, reg, setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, go, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
   let W = 0, Hh = 0;
   function size() {
     const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false);

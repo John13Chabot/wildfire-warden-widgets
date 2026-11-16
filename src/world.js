@@ -166,12 +166,19 @@ export function buildWorld(scene, { small, fire = false }) {
   for (const [x, z, s] of [[-3, -16, 1], [1.5, -20, 1.15], [-7.5, -21, 1.05], [11, -21, 1.1], [16, -16, 0.95], [-20, -16, 1.1], [-22, -7, 1.2], [-13, -15, 1], [27, -15, 1.05], [-36, 2, 1.2], [34, -6, 1.1]]) euc(x, z, s);
   cypress(14.7, 3.8, 1); cypress(14.7, -1.6, 0.9); cypress(-5.6, -6.6, 0.85);
 
+  // Zone 0 (5 ft / 1.52 m around the house): crowns, limbs and whole small trees inside it go into their own meshes,
+  // so a hardened house can be drawn with them removed (cypresses out, the oak limbed back off the roof)
+  const HR = { x0: -4.4, x1: 13.7, z0: -4.65, z1: 6.7 }, Z0D = 1.52, z0 = [];
+  const inZ0 = (g) => { g.computeBoundingBox(); const b = g.boundingBox; const dx = Math.max(HR.x0 - b.max.x, 0, b.min.x - HR.x1), dz = Math.max(HR.z0 - b.max.z, 0, b.min.z - HR.z1); return Math.hypot(dx, dz) < Z0D; };
+  const add = (geos, mat, cast, isCan) => { if (!geos.length) return null; const mesh = new THREE.Mesh(mergeGeometries(geos), mat); mesh.castShadow = cast; mesh.receiveShadow = true; scene.add(mesh); if (isCan) canopies.push(mesh); return mesh; };
   for (const [b, cast] of [[near, true], [far, false]]) {
-    if (b.can.length) { const canopy = new THREE.Mesh(mergeGeometries(b.can), canopyM); canopy.castShadow = cast; canopy.receiveShadow = true; scene.add(canopy); canopies.push(canopy); }
+    const cIn = b === near ? b.can.filter(inZ0) : [], cOut = b.can.filter((g) => !cIn.includes(g));
+    add(cOut, canopyM, cast, true); const zc = add(cIn, canopyM, cast, true); if (zc) z0.push(zc);
     for (const [arr, m] of [[b.oakW, oakBarkM], [b.eucW, eucBarkM]]) {
       if (!arr.length) continue;
       const geos = arr.map((g) => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; });
-      const mesh = new THREE.Mesh(mergeGeometries(geos), m); mesh.castShadow = cast; mesh.receiveShadow = true; scene.add(mesh);
+      const gIn = b === near ? geos.filter(inZ0) : [];
+      add(geos.filter((g) => !gIn.includes(g)), m, cast, false); const zl = add(gIn, m, cast, false); if (zl) z0.push(zl);
     }
   }
 
@@ -209,7 +216,7 @@ export function buildWorld(scene, { small, fire = false }) {
   }
   grass.count = gi; grass.receiveShadow = true; grass.name = 'grass'; scene.add(grass);
   CTR = false;
-  return { TREES, burn: fire ? makeBurn({ terr, canopies, sh, grass }) : null };
+  return { TREES, z0, burn: fire ? makeBurn({ terr, canopies, sh, grass }) : null };
 }
 
 // ---------- wildfire burn scar: vegetation and ground follow the recorded fire (arrival time per spot) ----------
