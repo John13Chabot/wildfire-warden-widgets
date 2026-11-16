@@ -24,7 +24,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.8.1';
+const VERSION = '4.8.2';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
@@ -127,13 +127,13 @@ async function start(root, api) {
   }
   // close-up detail models (homepage + services): tighter camera shots so the detail reads
   const TOURM = FM && root.dataset.tour != null;
-  const DET = FM && !TOURM ? null : createDetails({ scene, reg, hgt, SMALL });
-  if (!FM || TOURM) {
+  const DET = createDetails({ scene, reg, hgt, SMALL });
+  {
     const CU = { attic: { t: [1.5, 6.4, 6.1], az: 0.18, el: 0.12, d: 4.2 }, wood: { t: [2.6, 6.2, 6.6], az: 0.45, el: -0.05, d: 5.5 }, gutter: { t: [9.4, 3.22, 3.66], az: 0.42, el: 0.2, d: 4.0 },
       eaves: { t: [-3, 5.72, 3.25], az: -0.25, el: -0.42, d: 3.8 }, deck: { t: [-6.4, 1.05, 2.2], az: -0.8, el: 0.6, d: 5.0 }, found: { t: [-3.3, 0.35, 3.1], az: -0.12, el: 0.18, d: 2.6 }, zone: { t: [-2.4, 0.3, 3.8], az: 0.12, el: 0.5, d: 4.2 } };
     for (const h of H) if (CU[h.k]) h.v = CU[h.k];
     H.find((h) => h.k === 'eaves').p = [-3, 5.68, 3.55];
-    if (TOURM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
+    if (FM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
   }
   if (FM) { ensureFX(); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
   const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
@@ -198,19 +198,33 @@ async function start(root, api) {
   }
   const perf = { n: 0, acc: 0, settleAt: 0, drops: 0 };
   const px = new Uint8Array(4);
+  // detail sets per drawn house: upgraded version where that house has the upgrade, charred by that house's recording
+  let detT = 0;
+  function detFor(S, up) {
+    if (!DET) return;
+    DET.show(up);
+    const st = FM && api.fire && api.fire.st;
+    for (const k of ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']) {
+      if (!st || !st.ran || !S || !S.ign) { DET.burn(k, 0, 0, detT); continue; }
+      const T0 = st.T, sa = S.ign.struct != null ? T0 - S.ign.struct : -1, a = S.ign[k] != null ? T0 - S.ign[k] : -1;
+      const ch = Math.max(a < 0 ? 0 : Math.min(1, a / (k === 'gutter' || k === 'zone' ? 4 : 12)), sa < 0 ? 0 : Math.min(1, sa / 40));
+      const glow = a < 0 ? 0 : a < 1 ? a : Math.max(0.15, 1 - (a - 1) / 30);
+      DET.burn(k, ch, Math.max(glow, sa > 0 ? 0.6 : 0), detT);
+    }
+  }
   const split = () => ((FM && api.fire.st.cmp) ? (W / Hh < 0.95 ? 'v' : 'h') : null);
   const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
   const draw = () => {
     if (story && story.S) { F.apply(story.S, story.T); sketch.render(scene, cam, fx, fxScene); return; }
-    if (!FM) { sketch.render(scene, cam, fx); return; }
+    if (!FM) { detFor(null, null); sketch.render(scene, cam, fx); return; }
     const st = api.fire.st, hv = halves();
-    if (!hv[0]) { F.apply(st.sims[1], st.T); sketch.render(scene, cam, fx, fxScene); return; }
+    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); sketch.render(scene, cam, fx, fxScene); return; }
     r.setScissorTest(true);
-    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
+    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
     r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
   };
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
-  window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
+  window.__wwh3 = { setTier, get tier() { return tier; }, perf, renderer: r, bench, cam, H, go, project: (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * W), Math.round((1 - v.y) / 2 * Hh)]; } };
   let W = 0, Hh = 0;
   function size() {
     const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false);
@@ -294,18 +308,8 @@ async function start(root, api) {
     const raw = clock.getDelta(), dt = Math.min(raw, 0.05); t += dt;
     if (tour.on && !tour.hold && !document.hidden) { tour.t += Math.min(raw, 0.5); if (tour.i < 0 ? tour.t > 1.5 : tour.t >= STEP) tourNext(); if (progEl) progEl.style.width = (tour.i < 0 ? 0 : Math.min(100, tour.t / STEP * 100)).toFixed(1) + '%'; }
     let wf = 1, gst = 1;
-    if (DET) {
-      DET.update(cam);
-      if (TOURM && api.fire && api.fire.st.ran) {
-        const st = api.fire.st, S = st.sims[1], T0 = st.T, sa = S.ign.struct != null ? T0 - S.ign.struct : -1;
-        for (const k of ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone']) {
-          const a = S.ign[k] != null ? T0 - S.ign[k] : -1;
-          const ch = Math.max(a < 0 ? 0 : Math.min(1, a / (k === 'gutter' || k === 'zone' ? 4 : 12)), sa < 0 ? 0 : Math.min(1, sa / 40));
-          const glow = a < 0 ? 0 : a < 1 ? a : Math.max(0.15, 1 - (a - 1) / 30);
-          DET.burn(k, ch, Math.max(glow, sa > 0 ? 0.6 : 0), t);
-        }
-      }
-    }
+    if (DET) DET.update(cam);
+    detT = t;
     if (story) storyFrame(raw, dt);
     if (!FM) embers.visible = !story;   // the story's own ember storm replaces the ambient drift
     if (FM) {
