@@ -24,7 +24,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.8.2';
+const VERSION = '4.8.3';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
@@ -137,7 +137,7 @@ async function start(root, api) {
   }
   if (FM) { ensureFX(); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
   const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
-  let camUser = false, camShot = null, fRun = false;
+  let camUser = false, camShot = null, fRun = false, autoK = null;
   // ---------- pins + camera rig ----------
   const pins = H.map((h, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
@@ -175,9 +175,11 @@ async function start(root, api) {
   tourUI();
   const cv = r.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); ray.firstHitOnly = true; let drag = null, hoverLock = false;
   const pick = (e) => { ray.far = Infinity; const b = cv.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam); const h = ray.intersectObjects(solids, false)[0]; return h && h.object.userData.k ? H.findIndex((x) => x.k === h.object.userData.k) : -1; };
-  cv.addEventListener('pointerdown', (e) => { stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0 }; goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; camUser = true; });
+  // a touch that scrolls the page or a tap must not take the camera away from the guided shots: only a real drag does
+  const grab = () => { if (drag.on) return; drag.on = true; stopTour(); goal.az = cur.az; goal.el = cur.el; goal.d = cur.d; goal.t.copy(cur.t); flying = false; user = true; camUser = true; };
+  cv.addEventListener('pointerdown', (e) => { if (!FM) stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0, on: false }; });
   cv.addEventListener('pointermove', (e) => {
-    if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; goal.az = clampAz(goal.az - dx * 0.006); goal.el = clampEl(goal.el + dy * 0.004); }
+    if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; if (drag.m < 8) return; grab(); goal.az = clampAz(goal.az - dx * 0.006); goal.el = clampEl(goal.el + dy * 0.004); }
     else if (e.pointerType === 'mouse' && MODE === 'h') { if (hoverLock) return; hoverLock = true; requestAnimationFrame(() => (hoverLock = false)); const i = pick(e); cv.style.cursor = i >= 0 ? 'pointer' : ''; if (i >= 0 && i !== api.cur) api.set(i); else if (i < 0 && api.cur !== api.pinned) api.set(api.pinned); }
   });
   cv.addEventListener('pointerup', (e) => { if (drag && drag.m < 6) { const i = pick(e); if (i >= 0) { if (MODE === 'h') api.pin(i); else api.pickKey(H[i].k); } } drag = null; });
@@ -318,6 +320,8 @@ async function start(root, api) {
       const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf, api.fire.st.wind, api.fire.st.ran, cam); gst = envS.gust;
       // camera follows the recording: wide on the hillside while the fire approaches, then in on the houses
       if (api.fire.st.ran && !camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey, fh = fk && H.find((x) => x.k === fk); const v = fh ? fh.v : api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } }
+      // a viewer who looked around gets the guided camera back at the next shot (next close-up / wide)
+      if (api.fire.st.ran && camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey; if (fk !== autoK) { autoK = fk; camUser = false; camShot = null; } } else if (!camUser) autoK = api.fire.st.focusKey;
       if (!api.fire.st.ran) camShot = null;
       // firebrand physics: wind speed from the setting (calm 8, windy 20, Santa Ana 40 mph at 20 ft) with gusts;
       // brand supply follows the recorded ember exposure
