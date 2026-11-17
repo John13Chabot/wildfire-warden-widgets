@@ -16,6 +16,7 @@ import { STORY, BEATS } from './story.js';
 import { createEmbers } from './embers.js';
 import { createDetails } from './detail.js';
 import { buildNeighbors } from './neighbors.js';
+import { createCutaways, TARGET, CUTVIEW, OPEN } from './cutaway.js';
 import { setPadHeights } from './risk.js';
 import { SOFT } from './fireshader.js';
 import { buildWorld, hgt } from './world.js';
@@ -26,7 +27,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.9.0';
+const VERSION = '4.11.0';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
@@ -110,7 +111,7 @@ async function start(root, api) {
   const fx = [embers];
   // ---------- fire-test mode: shared FX + a second sketch pipeline for side-by-side ----------
   const FM = MODE === 'f';
-  let NB = null;
+  let NB = null, CUT = null, sketchI = null;
   let D = null, F = null, sketch2 = null, fxScene = null, clip = null, story = null, EMB = null;
   const SUN0 = sun.color.clone(), SUNI = sun.intensity, HS0 = hemi.color.clone(), HG0 = hemi.groundColor.clone(), HI = hemi.intensity;
   const SMOKY = new THREE.Color(1, 0.5, 0.24), GREYL = new THREE.Color(0.78, 0.76, 0.74), atmo = { tint: new THREE.Color(), tintK: 0, haze: new THREE.Color(), hazeK: 0, shim: SMALL ? 0 : 1, time: 0 };
@@ -141,11 +142,13 @@ async function start(root, api) {
         { k: 'windows', p: [-4.05, 4.4, 2.0], v: { t: [-4.1, 4.3, 2.0], az: -1.35, el: 0.08, d: 3.6 } },
         { k: 'walls', p: [9.5, 1.4, 3.1], v: { t: [9.6, 1.3, 3.1], az: 0.08, el: 0.1, d: 3.4 } },
         { k: 'fence', p: [-4.6, 1.0, -4.1], v: { t: [-5.0, 0.95, -4.1], az: -2.35, el: 0.22, d: 4.4 } });
+      for (const h of H) if (CUTVIEW[h.k]) h.v = CUTVIEW[h.k];
     }
     if (FM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
   }
   if (FM) { setPadHeights(hgt); NB = buildNeighbors(scene, { hgt, solids }); }
-  if (FM) { ensureFX(); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
+  if (FM) { CUT = createCutaways({ SMALL, glowT }); sketchI = createSketch(r); }
+  if (FM) { ensureFX(); fxScene.add(CUT.outFx, CUT.glassFx); EMB = createEmbers({ solids, hgt, glowT, SMALL, RM }); fxScene.add(EMB.group); EMB.reset(7, 8, 0, [3, 3, 0.5]); EMB.level(0); embers.visible = false; }
   const FV = { t: [1.5, 3.2, 1.5], az: 0.32, el: 0.2, d: 40 }, FW = { t: [-20, -1, 2], az: -0.72, el: 0.33, d: 80 };
   let camUser = false, camShot = null, fRun = false, autoK = null;
   // ---------- pins + camera rig ----------
@@ -243,14 +246,37 @@ async function start(root, api) {
   const z0Done = () => { if (z0Base) Z0.hide.forEach((m, i) => (m.visible = z0Base[i])); z0Base = null; for (const [m, k, show] of UPV) m.visible = !show && !(DET && DET.isNear(k)); };
   const split = () => ((FM && api.fire.st.cmp) ? (W / Hh < 0.95 ? 'v' : 'h') : null);
   const halves = () => { const sp = split(); return sp === 'h' ? [[0, 0, W / 2, Hh], [W / 2, 0, W / 2, Hh]] : sp === 'v' ? [[0, Hh / 2, W, Hh / 2], [0, 0, W, Hh / 2]] : [null, [0, 0, W, Hh]]; };
+  // close-up storytelling: per house, decide what this weak point does in this close-up, then draw outside effects
+  // (hero embers, window glass) before the house and the cut-away bubble after it
+  const cutMode = (st, s, k) => { const S = st.sims[s], up = s ? st.up : null; if (!S || !st.cut) return 'none'; if (S.ign[k] != null && S.ign[k] <= st.cut.t + 4) return 'ign'; if (up && up.has(k)) return 'stop'; return 'enter'; };   // enter: embers get in / land but this time nothing catches
+  const cutAnchor = new THREE.Vector3();
+  const cutP = (p) => Math.min(1, Math.max(0, (p - 0.16) / 0.84));   // story starts once the camera has arrived
+  function cutPre(st, s) {
+    if (!CUT) return;
+    const c = st.cut; if (!c || !st.ran) { CUT.off(); return; }
+    const mode = cutMode(st, s, c.k), tgt = TARGET[c.k];
+    if (tgt) CUT.outside(c.k, mode, cutP(c.p), t, tgt, CUT.has(c.k), F ? 0.4 : 0); else CUT.outFx.visible = false;
+    if (c.k === 'windows') CUT.glass(mode, cutP(c.p), t); else CUT.glassFx.visible = false;
+  }
+  function cutPost(st, s, rc) {
+    if (!CUT || !st.cut || !st.ran || !CUT.has(st.cut.k)) return;
+    const c = st.cut, q = cutP(c.p), o = OPEN[c.k] ?? 0.3, a = Math.min(1, Math.max(0, (q - o + 0.04) / 0.08)) * Math.min(1, Math.max(0, (1 - c.p) / 0.08));
+    if (a <= 0.01) return;
+    const mode = cutMode(st, s, c.k);
+    CUT.interior(c.k, mode, cutP(c.p), t, F ? 0.3 : 0);
+    cutAnchor.copy(CUT.anchor(c.k)).project(cam); if (cutAnchor.z > 1) return;
+    const pr = r.getPixelRatio(), [x, y, w, h] = rc;
+    sketchI.mask((x + (cutAnchor.x + 1) / 2 * w) * pr, (y + (cutAnchor.y + 1) / 2 * h) * pr, Math.min(w, h) * (0.12 + 0.18 * Math.min(1, Math.max(0, (q - o + 0.04) / 0.12))) * pr, a);
+    sketchI.render(CUT.scene, cam, [], CUT.fx);
+  }
   const draw = () => {
     if (story && story.S) { F.apply(story.S, story.T); sketch.render(scene, cam, fx, fxScene); return; }
     if (!FM) { detFor(null, null); sketch.render(scene, cam, fx); return; }
     const st = api.fire.st, hv = halves();
     if (NB) for (const nh of NB) nh.g.visible = st.nb !== false;
-    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); z0For(st.up, st.cov); sketch.render(scene, cam, fx, fxScene); z0Done(); return; }
+    if (!hv[0]) { F.apply(st.sims[1], st.T); detFor(st.sims[1], st.up); z0For(st.up, st.cov); cutPre(st, 1); sketch.render(scene, cam, fx, fxScene); cutPost(st, 1, [0, 0, W, Hh]); z0Done(); return; }
     r.setScissorTest(true);
-    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); z0For(s ? st.up : null, s ? st.cov : 0.6); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); });
+    [0, 1].forEach((s) => { const [x, y, w, h] = hv[s]; F.apply(st.sims[s], st.T); detFor(st.sims[s], s ? st.up : null); z0For(s ? st.up : null, s ? st.cov : 0.6); r.setViewport(x, y, w, h); r.setScissor(x, y, w, h); cutPre(st, s); (s ? sketch2 : sketch).render(scene, cam, fx, fxScene); cutPost(st, s, hv[s]); });
     z0Done(); r.setScissorTest(false); r.setViewport(0, 0, W, Hh);
   };
   const bench = (n = 10) => { const out = {}; const t0 = tier; for (const tt of [2, 1, 0]) { setTier(tt); for (let w = 0; w < 2; w++) draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); const a = performance.now(); for (let i = 0; i < n; i++) { draw(); r.getContext().readPixels(0, 0, 1, 1, 6408, 5121, px); } out['tier' + tt + 'Ms'] = +((performance.now() - a) / n).toFixed(1); } setTier(t0); return out; };
@@ -260,7 +286,7 @@ async function start(root, api) {
     const b = stage.getBoundingClientRect(); W = b.width; Hh = b.height; r.setSize(W, Hh, false);
     const sp = split(), w = sp === 'h' ? W / 2 : W, h = sp === 'v' ? Hh / 2 : Hh;
     cam.aspect = w / h; cam.updateProjectionMatrix();
-    sketch.setSize(w, h, r.getPixelRatio()); if (sketch2) sketch2.setSize(w, h, r.getPixelRatio());
+    sketch.setSize(w, h, r.getPixelRatio()); if (sketch2) sketch2.setSize(w, h, r.getPixelRatio()); if (sketchI) sketchI.setSize(w, h, r.getPixelRatio());
     if (FM) { root.classList.toggle('is-vert', sp === 'v'); }
   }
   if (FM) { api.onLayout = () => size(); api.onRun = () => { camUser = false; camShot = null; }; }
@@ -347,7 +373,7 @@ async function start(root, api) {
       wf = WIND[api.fire.st.wind].f;
       const envS = F.env(api.fire.st.ran ? api.fire.st.T : 0, wf, api.fire.st.wind, api.fire.st.ran, cam); gst = envS.gust;
       // camera follows the recording: wide on the hillside while the fire approaches, then in on the houses
-      if (api.fire.st.ran && !camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey, fh = fk && H.find((x) => x.k === fk); const v = fh ? fh.v : api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } }
+      if (api.fire.st.ran && !camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey, fh = fk && H.find((x) => x.k === fk); const v = fh ? fh.v : api.fire.st.T < api.fire.st.TL.tF + 0.3 ? FW : FV; if (v !== camShot) { camShot = v; go(v); } const cu = api.fire.st.cut; if (fh && cu && cu.k === fk) goal.d = fh.v.d * (1.5 - 0.5 * Math.min(1, cu.p / 0.35)); }
       // a viewer who looked around gets the guided camera back at the next shot (next close-up / wide)
       if (api.fire.st.ran && camUser && api.fire.st.TL) { const fk = api.fire.st.focusKey; if (fk !== autoK) { autoK = fk; camUser = false; camShot = null; } } else if (!camUser) autoK = api.fire.st.focusKey;
       if (!api.fire.st.ran) camShot = null;
@@ -365,7 +391,7 @@ async function start(root, api) {
       sun.color.copy(SUN0).lerp(SMOKY, k * (1 - g)).lerp(GREYL, k * g); sun.intensity = SUNI * (1 - 0.72 * k);
       hemi.color.copy(HS0).lerp(SMOKY, 0.55 * k * (1 - g)).lerp(GREYL, 0.6 * k * g); hemi.groundColor.copy(HG0).lerp(new THREE.Color(0.25, 0.2, 0.17), k); hemi.intensity = HI * (1 - 0.4 * k);
       atmo.tint.copy(TINT_B).lerp(TINT_G, g); atmo.tintK = k * 0.6; atmo.haze.copy(HAZE_B).lerp(HAZE_G, g); atmo.hazeK = k * 0.3; atmo.fade = camShot === FW ? [90, 240] : [45, 150]; atmo.time = t;
-      sketch.atmo(atmo); sketch2.atmo(atmo);
+      sketch.atmo(atmo); sketch2.atmo(atmo); if (sketchI) sketchI.atmo({ ...atmo, tintK: atmo.tintK * 0.3, hazeK: 0, shim: 0 }); if (CUT) CUT.tick(dt);
     }
     const f = RM && flying ? 1 : 1 - Math.pow(0.02, dt);
     cur.az += (goal.az - cur.az) * f; cur.el += (goal.el - cur.el) * f; cur.d += (goal.d - cur.d) * f; cur.t.lerp(goal.t, f);

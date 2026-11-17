@@ -8,7 +8,10 @@ const PRESETS = [
 ];
 const fmt = (m) => { const h = Math.floor(m / 60), mm = Math.floor(m % 60); return h + ':' + String(mm).padStart(2, '0'); };
 
-const CU = { lead: 1, after: 3, sec: 5 };   // close-up: sim minutes before/after the moment, real seconds it takes
+const CU = { lead: 1, after: 3, sec: 5 };
+const INSIDE = new Set(['attic', 'windows', 'walls', 'found']);   // close-ups with a cut-away view get more screen time
+// one quiet caption per house during a close-up: [typical, upgraded]
+const CAP = { attic: ['Attic vent · ¼″ screen', 'Ember-resistant mesh'], wood: ['Bare wood trim', 'Fire-resistant coating'], gutter: ['Leaves in the gutter', 'Gutter guard'], eaves: ['Open eaves', 'Boxed eaves'], deck: ['Untreated wood deck', 'DeckGuard coating'], found: ['Crawl-space vent · ¼″ screen', 'Ember-resistant mesh'], zone: ['Plants & mulch at the wall', 'Clear Zone 0'], roof: ['Open tile ends', 'Bird stops'], windows: ['Single-pane glass', 'Dual-pane tempered glass'], walls: ['Gaps around the garage doors', 'Sealed garage doors'], fence: ['Wood fence at the wall', 'Metal section at the wall'] };   // close-up: sim minutes before/after the moment, real seconds it takes
 export function initFire(root) {
   const $ = (s) => root.querySelector(s);
   const TOUR = root.dataset.tour != null;
@@ -38,11 +41,12 @@ export function initFire(root) {
     st.cancel = [0, 1].map((s) => riskAsync(s ? st.up : new Set(), st.wind, { cov: s ? st.cov : 0.6, nb: st.nb }, (r) => { st.risk[s] = r; riskEl[s].innerHTML = 'Chance of loss <b>' + Math.round(r.p * 100) + '%</b> <span style="opacity:.75">(' + Math.round(r.lo * 100) + '&ndash;' + Math.round(r.hi * 100) + '%)</span>'; if (!res.hidden) results(); }));
     // close-ups: one slow-motion slot per weak point the fire reaches (on either house), in the order it reaches them
     const sides = st.cmp ? st.sims : [st.sims[1]], hit = [];
-    for (const k of EXT) { let t = Infinity; for (const S of sides) t = Math.min(t, S.ign[k] ?? Infinity, S.stop[k] ?? Infinity); if (t < Infinity) hit.push([t, k]); }
+    // a close-up sits on the moment it catches (if it does on either house), otherwise on the moment it is stopped
+    for (const k of EXT) { let ti = Infinity, ts = Infinity; for (const S of sides) { ti = Math.min(ti, S.ign[k] ?? Infinity); ts = Math.min(ts, S.stop[k] ?? Infinity); } const t = ti < Infinity ? ti : ts; if (t < Infinity) hit.push([t, k]); }
     hit.sort((a, b) => a[0] - b[0]);
     st.slots = []; let end = -Infinity;
     // each close-up stays centred on its own moment: clustered events share the time between them, each still gets CU.sec on screen
-    hit.forEach(([t, k], i) => { const nx = hit[i + 1]; const a = Math.max(t - CU.lead, end); let b = t + CU.after; if (nx) b = Math.min(b, Math.max(t + 0.5, (t + nx[0]) / 2)); b = Math.max(b, a + 0.4); st.slots.push({ k, t, a, b }); end = b; });
+    hit.forEach(([t, k], i) => { const nx = hit[i + 1]; const a = Math.max(t - CU.lead, end); let b = t + CU.after; if (nx) b = Math.min(b, Math.max(t + 0.5, (t + nx[0]) / 2)); b = Math.max(b, a + 0.4); st.slots.push({ k, t, a, b, sec: INSIDE.has(k) ? 7 : CU.sec }); end = b; });
     ups.querySelectorAll('.wwh3f-up').forEach((b) => b.setAttribute('aria-pressed', st.up.has(b.dataset.k)));
     wind.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', b.dataset.w === st.wind));
     pre.querySelectorAll('button').forEach((b) => { const p = PRESETS[+b.dataset.i].up; b.classList.toggle('on', p.length === st.up.size && p.every((k) => st.up.has(k))); });
@@ -66,13 +70,14 @@ export function initFire(root) {
         const s = Math.min(PLAY_END, TL.toSec(st.T) + d); st.T = TL.toMin(s);
         if (st.T >= TL.tF + 1) { tr.i = 0; tr.end = st.T; startItem(); }
       } else if (tr.i < EXT.length) {
-        st.T += d * (TC.lead + TC.after) / TC.sec;
+        st.T += d * (TC.lead + TC.after) / (INSIDE.has(st.focusKey) ? TC.sec + 2 : TC.sec);
         if (st.T >= tr.b) { tr.end = Math.max(tr.end, st.T); tr.i++; if (tr.i < EXT.length) startItem(); else { st.T = tr.end; st.focusKey = null; } }
       } else {
         const s = Math.min(PLAY_END, TL.toSec(st.T) + d * 1.4); st.T = TL.toMin(s);
         if (s >= PLAY_END) { st.T = TL.TMAX; setPlay(false); results(); }
       }
     }
+    st.cut = tr.i >= 0 && tr.i < EXT.length && st.focusKey ? { k: st.focusKey, p: (st.T - (tr.b - TC.after - TC.lead)) / (TC.lead + TC.after), t: tr.b - TC.after } : null;
     range.value = Math.round(TL.toSec(st.T) / PLAY_END * 1000);
     clock.textContent = fmt(st.T) + ' hr';
     const ph = TL.PHASES.find(([a, b]) => st.T >= a && st.T < b);
@@ -117,7 +122,7 @@ export function initFire(root) {
   }
 
   // engine hooks
-  const labPool = [];
+  const labPool = [], caps = [...root.querySelectorAll('.wwh3f-cap')];
   const lab = (i) => { if (!labPool[i]) { const d = document.createElement('div'); d.className = 'wwh3f-lab'; labels.appendChild(d); labPool[i] = d; } return labPool[i]; };
   api.fire = {
     st,
@@ -125,8 +130,9 @@ export function initFire(root) {
       if (st.tour && st.ran) return tourTick(raw);
       const slot = st.ran ? st.slots.find((x) => st.T >= x.a && st.T < x.b) : null;
       st.focusKey = slot ? slot.k : null;
+      st.cut = slot ? { k: slot.k, p: (st.T - slot.a) / (slot.b - slot.a), t: slot.t } : null;
       if (st.play && !document.hidden) {
-        if (slot) st.T = Math.min(slot.b, st.T + Math.min(raw, 0.25) * (slot.b - slot.a) / CU.sec);   // slow motion during a close-up
+        if (slot) st.T = Math.min(slot.b, st.T + Math.min(raw, 0.25) * (slot.b - slot.a) / slot.sec);   // slow motion during a close-up
         else {
           // jump straight into the next close-up rather than overshooting it at normal speed
           const s = Math.min(PLAY_END, TL.toSec(st.T) + Math.min(raw, 0.25)), next = st.slots.find((x) => x.a > st.T);
@@ -147,7 +153,7 @@ export function initFire(root) {
         const sides = st.cmp ? [0, 1] : [1];
         for (const s of sides) {
           const S = st.sims[s];
-          const live = st.focusKey ? S.ev.filter((e) => e.k === st.focusKey && st.T >= e.t) : S.ev.filter((e) => st.T >= e.t && (e.k === 'struct' || st.T <= e.t + 14)).slice(root.clientWidth < 700 ? -1 : -3);
+          const live = st.cut ? [] : S.ev.filter((e) => st.T >= e.t && (e.k === 'struct' || (e.kind === 'nbr' && st.T <= e.t + 10))).slice(-1);
           for (const e of live) {
             const big = e.k === 'struct';
             const p = project(s, e.k);
@@ -160,6 +166,14 @@ export function initFire(root) {
         }
       }
       for (let i = n; i < labPool.length; i++) labPool[i].style.display = 'none';
+      caps.forEach((el, s) => {
+        const c = st.cut, show = st.ran && c && (st.cmp || s === 1);
+        if (!show) { el.style.opacity = 0; return; }
+        const S = st.sims[s], up = s ? st.up : new Set(), ign = S.ign[c.k] != null && S.ign[c.k] <= c.t + 4, held = !ign && up.has(c.k);
+        const txt = (up.has(c.k) ? CAP[c.k][1] : CAP[c.k][0]) + (c.p > 0.6 && ign ? ' <b class="x">&#10006;</b>' : c.p > 0.55 && held ? ' <b class="v">&#10003;</b>' : '');
+        if (el._t !== txt) { el.innerHTML = txt; el._t = txt; }
+        el.style.opacity = Math.min(1, Math.max(0, (c.p - 0.25) / 0.1)) * Math.min(1, Math.max(0, (1 - c.p) / 0.06));
+      });
     },
   };
   recompute();
