@@ -27,12 +27,15 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const VERSION = '4.11.0';
+const VERSION = '4.12.0';
 const rootH = document.getElementById('wwh3'), rootS = document.getElementById('wwh3s'), rootF = document.getElementById('wwh3f');
 // a walkthrough embed (#wwh3f[data-tour]) can sit on a page that already has another model (e.g. Services) — it takes priority
 const tourRoot = rootF && rootF.dataset.tour != null && !rootF.dataset.version ? rootF : null;
-const root = tourRoot || rootH || rootS || rootF;
-const MODE = tourRoot ? 'f' : rootH ? 'h' : rootS ? 's' : 'f';
+// two models on one page load the same bundle twice with ?m=s / ?m=f so each copy claims its own root
+let QM = null; try { QM = new URL(import.meta.url).searchParams.get('m'); } catch (e) {}
+const free = (el) => (el && !el.dataset.version ? el : null);
+const root = QM === 's' ? free(rootS) : QM === 'h' ? free(rootH) : QM === 'f' ? free(rootF) : (tourRoot || free(rootH) || free(rootS) || free(rootF));
+const MODE = !root ? 'f' : root === rootH ? 'h' : root === rootS ? 's' : 'f';
 if (root && !root.dataset.version) {
   root.classList.add('wwh3');
   if (MODE !== 'h') root.classList.add('wwh3' + MODE);
@@ -46,7 +49,7 @@ if (root && !root.dataset.version) {
     if (m) m.textContent = '3D view unavailable on this device. Use the list below to explore.';
     console.warn('[wwh3]', err);
   });
-  if (tourRoot && rootS) {
+  if (root === rootF && rootS) {
     const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); boot(); } }, { rootMargin: '900px 0px' });
     io.observe(root);
   } else boot();
@@ -137,12 +140,14 @@ async function start(root, api) {
       eaves: { t: [-3, 5.72, 3.25], az: -0.25, el: -0.42, d: 3.8 }, deck: { t: [-6.4, 1.05, 2.2], az: -0.8, el: 0.6, d: 5.0 }, found: { t: [-3.3, 0.35, 3.1], az: -0.12, el: 0.18, d: 2.6 }, zone: { t: [-2.4, 0.3, 3.8], az: 0.12, el: 0.5, d: 4.2 } };
     for (const h of H) if (CU[h.k]) h.v = CU[h.k];
     H.find((h) => h.k === 'eaves').p = [-3, 5.68, 3.55];
-    if (FM) {
+    {
       H.push({ k: 'roof', p: [-2.9, 5.9, 3.65], v: { t: [-2.9, 5.92, 3.6], az: -0.4, el: -0.1, d: 1.9 } },
         { k: 'windows', p: [-4.05, 4.4, 2.0], v: { t: [-4.1, 4.3, 2.0], az: -1.35, el: 0.08, d: 3.6 } },
         { k: 'walls', p: [9.5, 1.4, 3.1], v: { t: [9.6, 1.3, 3.1], az: 0.08, el: 0.1, d: 3.4 } },
         { k: 'fence', p: [-4.6, 1.0, -4.1], v: { t: [-5.0, 0.95, -4.1], az: -2.35, el: 0.22, d: 4.4 } });
-      for (const h of H) if (CUTVIEW[h.k]) h.v = CUTVIEW[h.k];
+      if (FM) for (const h of H) if (CUTVIEW[h.k]) h.v = CUTVIEW[h.k];
+      // homepage: same order as the scroll-through cards (top of the house down to the yard)
+      if (MODE === 'h' && api.ORDER) H.sort((a, b) => api.ORDER.indexOf(a.k) - api.ORDER.indexOf(b.k));
     }
     if (FM) EMIT.eaves.unshift([-3, 5.75, 3.5], [-4.2, 5.75, 3.5]);
   }
@@ -155,7 +160,8 @@ async function start(root, api) {
   const pins = H.map((h, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wwh3-pin'; b.innerHTML = '<span class="d"></span><span class="s"></span><span class="b">' + (i + 1) + '</span>';
     b.setAttribute('aria-label', i + 1 + ': ' + api.D[i].t);
-    if (MODE === 'h') { b.addEventListener('mouseenter', () => api.set(i)); b.addEventListener('mouseleave', () => api.set(api.pinned)); b.addEventListener('click', () => api.pin(i)); }
+    if (MODE === 'h' && api.goTo) b.addEventListener('click', () => api.goTo(i));
+    else if (MODE === 'h') { b.addEventListener('mouseenter', () => api.set(i)); b.addEventListener('mouseleave', () => api.set(api.pinned)); b.addEventListener('click', () => api.pin(i)); }
     else b.addEventListener('click', () => api.pickKey(H[i].k)); pinsEl.appendChild(b); h.v3 = new THREE.Vector3(...h.p); return b;
   });
   if (FM) DEFV = FV;
@@ -176,7 +182,7 @@ async function start(root, api) {
   if (api.cur != null && api.cur >= 0) api.set(api.cur, true);
   const resetBtn = root.querySelector('.wwh3-reset'); if (resetBtn) resetBtn.addEventListener('click', () => { api.pin(null); user = false; });
   // ---------- auto-tour: steps 1 -> 7 until the visitor takes over ----------
-  let STEP = 7; const tour = { on: MODE === 'h', i: -1, t: 0, hold: false }, tourBtn = root.querySelector('.wwh3-tour'), progEl = root.querySelector('.wwh3-prog i');
+  let STEP = 7; const tour = { on: MODE === 'h' && !api.goTo, i: -1, t: 0, hold: false }, tourBtn = root.querySelector('.wwh3-tour'), progEl = root.querySelector('.wwh3-prog i');
   const pinRaw = api.pin;
   const tourUI = () => { if (!tourBtn) return; tourBtn.textContent = tour.on ? 'Pause tour' : '\u25B6 Play tour'; tourBtn.setAttribute('aria-pressed', tour.on); root.classList.toggle('is-touring', tour.on); if (!tour.on) progEl.style.width = '0'; };
   const stopTour = () => { if (tour.on) { tour.on = false; tourUI(); } };
@@ -193,11 +199,11 @@ async function start(root, api) {
   cv.addEventListener('pointerdown', (e) => { if (!FM) stopTour(); drag = { x: e.clientX, y: e.clientY, m: 0, on: false }; });
   cv.addEventListener('pointermove', (e) => {
     if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; if (drag.m < 8) return; grab(); goal.az = clampAz(goal.az - dx * 0.006); goal.el = clampEl(goal.el + dy * 0.004); }
-    else if (e.pointerType === 'mouse' && MODE === 'h') { if (hoverLock) return; hoverLock = true; requestAnimationFrame(() => (hoverLock = false)); const i = pick(e); cv.style.cursor = i >= 0 ? 'pointer' : ''; if (i >= 0 && i !== api.cur) api.set(i); else if (i < 0 && api.cur !== api.pinned) api.set(api.pinned); }
+    else if (e.pointerType === 'mouse' && MODE === 'h' && !api.goTo) { if (hoverLock) return; hoverLock = true; requestAnimationFrame(() => (hoverLock = false)); const i = pick(e); cv.style.cursor = i >= 0 ? 'pointer' : ''; if (i >= 0 && i !== api.cur) api.set(i); else if (i < 0 && api.cur !== api.pinned) api.set(api.pinned); }
   });
-  cv.addEventListener('pointerup', (e) => { if (drag && drag.m < 6) { const i = pick(e); if (i >= 0) { if (MODE === 'h') api.pin(i); else api.pickKey(H[i].k); } } drag = null; });
+  cv.addEventListener('pointerup', (e) => { if (drag && drag.m < 6) { const i = pick(e); if (i >= 0) { if (MODE === 'h' && api.goTo) api.goTo(i); else if (MODE === 'h') api.pin(i); else api.pickKey(H[i].k); } } drag = null; });
   cv.addEventListener('pointercancel', () => (drag = null));
-  cv.addEventListener('pointerleave', () => { if (MODE === 'h' && !drag && api.cur !== api.pinned) api.set(api.pinned); });
+  cv.addEventListener('pointerleave', () => { if (MODE === 'h' && !api.goTo && !drag && api.cur !== api.pinned) api.set(api.pinned); });
 
   let vis = true; new IntersectionObserver((es) => (vis = es[0].isIntersecting)).observe(stage);
   // ---------- adaptive quality ----------

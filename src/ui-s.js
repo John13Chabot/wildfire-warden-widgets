@@ -2,8 +2,8 @@ import { IB, IMG } from './imgs.js';
 
 // Services page: scroll-linked 3D model. Each service lights up every spot on the house it protects.
 const TAG = { 'Embers': '', 'Flame contact': 'flame', 'Radiant heat': 'heat' };
-const SPOT = { attic: 'Attic & gable vents', wood: 'Fascia, trim & exposed wood', gutter: 'Gutters & roof edge', eaves: 'Open eaves & soffits', deck: 'Decks', found: 'Foundation & crawl space vents', zone: 'Zone 0: the first 5 feet' };
-const ORDER = ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone'];
+const SPOT = { attic: 'Attic & gable vents', wood: 'Fascia, trim & exposed wood', gutter: 'Gutters & roof edge', eaves: 'Open eaves & soffits', deck: 'Decks', found: 'Foundation & crawl space vents', zone: 'Zone 0: the first 5 feet', roof: 'Roof edge & open tile ends', windows: 'Windows', walls: 'Garage doors', fence: 'Wood fence at the wall' };
+const ORDER = ['attic', 'wood', 'gutter', 'eaves', 'deck', 'found', 'zone', 'roof', 'windows', 'walls', 'fence'];
 
 export const SV = [
   {
@@ -51,6 +51,34 @@ export const SV = [
     view: { t: [-7.5, -0.3, 0], az: -1.15, el: 0.22, d: 17 },
     d: 'Embers collect on deck boards and drop into the space underneath. DeckGuard is a fire-resistant coating for wood decks, fences, and connected wood structures, built to hold up to foot traffic, weather, and UV.',
     imgs: [], prod: ['DeckGuard'],
+    cta: ['Get a Free Assessment & Quote', '/free-assessment'],
+  },
+  {
+    id: 'bird-stops', n: 'Bird Stops & Roof-Edge Closures', th: ['Embers'], keys: ['roof'],
+    view: { t: [-2.9, 5.6, 3.4], az: -0.35, el: 0.12, d: 9 },
+    d: 'Tile roofs leave open ends along the eaves and ridge, where embers, leaves, and nesting material blow in and rest on the wood roof deck under the tile. We close those openings with non-combustible bird stops and roof-edge closures.',
+    imgs: [], prod: ['Non-combustible bird stops', 'Roof-edge closures'],
+    cta: ['Get a Free Assessment & Quote', '/free-assessment'],
+  },
+  {
+    id: 'garage-door-seals', n: 'Garage Door Seals', th: ['Embers'], keys: ['walls'],
+    view: { t: [9.6, 1.4, 3.1], az: 0.1, el: 0.12, d: 10 },
+    d: 'Gaps around garage doors let wind-driven embers in at floor level, right where boxes, rags, and fuel are stored. We install bottom seals plus side and top weatherstripping to close the gaps, so embers stay outside.',
+    imgs: [], prod: ['Garage door bottom seals', 'Side & top weatherstripping'],
+    cta: ['Get a Free Assessment & Quote', '/free-assessment'],
+  },
+  {
+    id: 'windows', n: 'Window Upgrades', th: ['Radiant heat', 'Flame contact'], keys: ['windows'],
+    view: { t: [-4.1, 4.2, 2.0], az: -1.3, el: 0.1, d: 10 },
+    d: 'Single-pane glass cracks and falls out under the heat of burning plants, a fence, or a neighboring home, letting embers and flame straight into the room. We replace vulnerable windows with dual-pane units with tempered glass, which hold up far longer to heat and flame.',
+    imgs: [], prod: ['Dual-pane windows', 'Tempered glass'],
+    cta: ['Get a Free Assessment & Quote', '/free-assessment'],
+  },
+  {
+    id: 'non-combustible-fence', n: 'Non-Combustible Fence Sections', th: ['Flame contact', 'Radiant heat'], keys: ['fence'],
+    view: { t: [-5, 1, -4.1], az: -2.2, el: 0.42, d: 8 },
+    d: 'A wood fence that connects to the house works like a fuse, carrying flame straight to your siding, eaves, and windows. We replace the first 5 feet of fence where it meets the house with metal or fiber cement, breaking that path.',
+    imgs: [], prod: ['Metal fence panels', 'Fiber-cement fence panels'],
     cta: ['Get a Free Assessment & Quote', '/free-assessment'],
   },
 ];
